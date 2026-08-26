@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- PackAsTool does not support a TargetPlatformIdentifier; runtime checks keep the tool Windows-only. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>WindowsCleanup</AssemblyName>
+    <RootNamespace>WindowsCleanup</RootNamespace>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>winclean</ToolCommandName>
+    <PackageId>winclean</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Ater_NilTor</Authors>
+    <Description>Safe Windows 10/11 cleanup command-line tool with bilingual Spectre.Console UI.</Description>
+    <PackageTags>windows;cleanup;disk;cache;privacy;system-tool</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" Version="0.57.0" />
+    <None Update="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

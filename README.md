@@ -6,6 +6,7 @@
 
 - `Tools.slnx`：解决方案文件
 - `PortScan/`：端口扫描命令行工具
+- `WindowsCleanup/`：Windows 10/11 安全清理命令行工具
 
 ## PortScan
 
@@ -45,3 +46,29 @@ dotnet run --project PortScan -- 192.168.1.10 1 1024 0.5 50
 - 不依赖系统是否安装 `telnet`
 
 如果只是人工临时连一下，`telnet` 当然也能用；但做成工具的话，自己实现更稳，也更像个正经工具，少一点“看天吃饭”的味道。
+
+## WindowsCleanup
+
+使用 Spectre.Console 提供交互式清理界面，支持中文和英文：
+
+```bash
+dotnet pack WindowsCleanup/WindowsCleanup.csproj --configuration Release
+dotnet tool install --global winclean
+winclean
+```
+
+工具会根据 Windows 当前 UI 语言自动选择中文或英文界面。
+
+命令行模式：
+
+```bash
+winclean --scan
+winclean --clean
+winclean --clean --all
+winclean --registry
+winclean --duplicates
+winclean --remnants
+winclean --packages
+```
+
+所有删除操作都需要交互确认；`--scan` 和 `--dry-run` 只预览，不删除文件。`--clean --all` 会跳过需要额外判断的项目，交互式 `--clean` 可手动选择。工具只清理可重新生成的临时文件/缓存、C: 回收站和当前用户的使用记录；安装包、卸载残留和失效注册表路径均采用人工审核。不会自动删除未知 AppData、重复文件（逐组确认）、系统关键目录或所谓的“孤儿注册表”。详见 [`WindowsCleanup/README.md`](WindowsCleanup/README.md)。
