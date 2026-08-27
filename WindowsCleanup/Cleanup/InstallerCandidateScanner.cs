@@ -11,7 +11,27 @@ public sealed record InstallerCandidate(
 	LocalizedText Source,
 	string RootPath)
 {
-	public override string ToString() => Markup.Escape(Path);
+	public override string ToString() => Markup.Escape($"{Path} ({FormatBytes(Bytes)})");
+
+	private static string FormatBytes(long bytes)
+	{
+		const double scale = 1024;
+		if (bytes < scale)
+		{
+			return $"{bytes} B";
+		}
+
+		var units = new[] { "KB", "MB", "GB", "TB" };
+		var unit = -1;
+		double scaled = bytes;
+		while (scaled >= scale && unit < units.Length - 1)
+		{
+			scaled /= scale;
+			unit++;
+		}
+
+		return $"{scaled:0.##} {units[unit]}";
+	}
 }
 
 public static class InstallerCandidateScanner

@@ -72,7 +72,12 @@ internal static class DataMigrationService
 			try
 			{
 				var sourcePath = Path.GetFullPath(target.SourcePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-				var destinationPath = Path.Combine(destinationRoot, "WinClean", "Migration", target.Id);
+				var destinationPath = BuildDestinationPath(destinationRoot, target, sourcePath);
+				if (destinationPath is null)
+				{
+					continue;
+				}
+
 				if (!IsOnRoot(sourcePath, systemRoot) || IsRootPath(sourcePath) ||
 					!IsOnRoot(destinationPath, destinationRoot) ||
 					Directory.Exists(destinationPath) && Directory.EnumerateFileSystemEntries(destinationPath).Any() ||
@@ -97,6 +102,18 @@ internal static class DataMigrationService
 		}
 
 		return plan;
+	}
+
+	internal static bool TryGetDirectorySize(string path, out long bytes)
+	{
+		bytes = 0;
+		if (!TryGetDirectorySnapshot(path, out var snapshot, out _))
+		{
+			return false;
+		}
+
+		bytes = snapshot.Bytes;
+		return true;
 	}
 
 	public static MigrationExecutionResult Execute(
@@ -623,6 +640,56 @@ internal static class DataMigrationService
 
 	private static string NormalizeRoot(string path)
 		=> Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+	private static string? BuildDestinationPath(string destinationRoot, MigrationTarget target, string sourcePath)
+	{
+		try
+		{
+			var profilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+			if (!string.IsNullOrWhiteSpace(profilePath))
+			{
+				profilePath = Path.GetFullPath(profilePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+				var relativePath = Path.GetRelativePath(profilePath, sourcePath);
+				if (!IsRootPath(profilePath) && IsSafeRelativePath(relativePath))
+				{
+					// Keep the part after the user's profile root, e.g.
+					// C:\Users\alice\Documents -> E:\Documents.
+					return Path.Combine(destinationRoot, relativePath);
+				}
+			}
+
+			return Path.Combine(
+				destinationRoot,
+				"WinClean",
+				"Migration",
+				"External",
+				SanitizePathSegment(target.Id));
+		}
+		catch (Exception exception) when (exception is ArgumentException or IOException or NotSupportedException)
+		{
+			return null;
+		}
+	}
+
+	private static bool IsSafeRelativePath(string relativePath)
+	{
+		if (string.IsNullOrWhiteSpace(relativePath) || relativePath == "." || Path.IsPathRooted(relativePath))
+		{
+			return false;
+		}
+
+		var parentPrefix = ".." + Path.DirectorySeparatorChar;
+		return !string.Equals(relativePath, "..", StringComparison.Ordinal) &&
+			!relativePath.StartsWith(parentPrefix, StringComparison.Ordinal) &&
+			!relativePath.StartsWith("../", StringComparison.Ordinal);
+	}
+
+	private static string SanitizePathSegment(string value)
+	{
+		var invalid = Path.GetInvalidFileNameChars();
+		var sanitized = new string(value.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
+		return string.IsNullOrWhiteSpace(sanitized) ? "item" : sanitized;
+	}
 
 	private static bool IsOnRoot(string path, string root)
 	{

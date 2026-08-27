@@ -148,14 +148,26 @@ public sealed class CleanupApp
 		}
 		else
 		{
-			var choices = available.Select(target => new CleanupChoice(target, _text.Language)).ToArray();
+			var choices = available
+				.Select(target => new CleanupSelection(target, _text.Language))
+				.Prepend(CleanupSelection.Cancel(_text.Language))
+				.ToArray();
 			var selectedChoices = AnsiConsole.Prompt(
-				new MultiSelectionPrompt<CleanupChoice>()
+				new MultiSelectionPrompt<CleanupSelection>()
 					.Title(_text.Get("cleanup_select"))
 					.PageSize(15)
 					.InstructionsText(_text.Get("cleanup_select_instructions"))
 					.AddChoices(choices));
-			selected = selectedChoices.Select(choice => choice.Target).ToArray();
+			if (selectedChoices.Any(choice => choice.IsCancel))
+			{
+				WriteWarning(_text.Get("selection_cancelled"));
+				return 0;
+			}
+
+			selected = selectedChoices
+				.Where(choice => choice.Target is not null)
+				.Select(choice => choice.Target!)
+				.ToArray();
 		}
 
 		if (selected.Count == 0)
@@ -370,20 +382,34 @@ public sealed class CleanupApp
 		}
 
 		WriteWarning(_text.Get("remnants_manual"));
-		var selected = AnsiConsole.Prompt(
-			new MultiSelectionPrompt<AppDataCandidate>()
+		var choices = candidates
+			.Select(candidate => new RemnantSelection(candidate, _text.Language))
+			.Prepend(RemnantSelection.Cancel(_text.Language))
+			.ToArray();
+		var selectedChoices = AnsiConsole.Prompt(
+			new MultiSelectionPrompt<RemnantSelection>()
 				.Title(_text.Get("remnants_select"))
 				.PageSize(15)
 				.InstructionsText(_text.Get("cleanup_select_instructions"))
-				.AddChoices(candidates));
-		if (selected.Count == 0)
+				.AddChoices(choices));
+		if (selectedChoices.Any(choice => choice.IsCancel))
+		{
+			WriteWarning(_text.Get("selection_cancelled"));
+			return 0;
+		}
+
+		var selected = selectedChoices
+			.Where(choice => choice.Candidate is not null)
+			.Select(choice => choice.Candidate!)
+			.ToArray();
+		if (selected.Length == 0)
 		{
 			WriteWarning(_text.Get("cleanup_none_selected"));
 			return 0;
 		}
 
 		var totalBytes = selected.Sum(candidate => candidate.Bytes);
-		if (!AnsiConsole.Confirm(_text.Format("remnants_confirm", selected.Count, FormatBytes(totalBytes)), defaultValue: false))
+		if (!AnsiConsole.Confirm(_text.Format("remnants_confirm", selected.Length, FormatBytes(totalBytes)), defaultValue: false))
 		{
 			WriteWarning(_text.Get("cleanup_cancelled"));
 			return 0;
@@ -441,21 +467,35 @@ public sealed class CleanupApp
 			return 0;
 		}
 
-		var selected = AnsiConsole.Prompt(
-			new MultiSelectionPrompt<InstallerCandidate>()
+		var choices = candidates
+			.Select(candidate => new InstallerSelection(candidate, _text.Language))
+			.Prepend(InstallerSelection.Cancel(_text.Language))
+			.ToArray();
+		var selectedChoices = AnsiConsole.Prompt(
+			new MultiSelectionPrompt<InstallerSelection>()
 				.Title(_text.Get("packages_select"))
 				.PageSize(15)
 				.InstructionsText(_text.Get("cleanup_select_instructions"))
-				.AddChoices(candidates));
+				.AddChoices(choices));
+		if (selectedChoices.Any(choice => choice.IsCancel))
+		{
+			WriteWarning(_text.Get("selection_cancelled"));
+			return 0;
+		}
 
-		if (selected.Count == 0)
+		var selected = selectedChoices
+			.Where(choice => choice.Candidate is not null)
+			.Select(choice => choice.Candidate!)
+			.ToArray();
+
+		if (selected.Length == 0)
 		{
 			WriteWarning(_text.Get("cleanup_none_selected"));
 			return 0;
 		}
 
 		var totalBytes = selected.Sum(candidate => candidate.Bytes);
-		if (!AnsiConsole.Confirm(_text.Format("packages_confirm", selected.Count, FormatBytes(totalBytes)), defaultValue: false))
+		if (!AnsiConsole.Confirm(_text.Format("packages_confirm", selected.Length, FormatBytes(totalBytes)), defaultValue: false))
 		{
 			WriteWarning(_text.Get("cleanup_cancelled"));
 			return 0;
@@ -492,6 +532,7 @@ public sealed class CleanupApp
 		table.AddColumn(_text.Get("migration_columns_category"));
 		table.AddColumn(_text.Get("migration_columns_name"));
 		table.AddColumn(_text.Get("migration_columns_source"));
+		table.AddColumn(_text.Get("migration_columns_size"));
 		table.AddColumn(_text.Get("migration_columns_plan"));
 		foreach (var target in targets)
 		{
@@ -499,6 +540,7 @@ public sealed class CleanupApp
 				new Text(target.Category.Get(_text.Language)),
 				new Text(target.Name.Get(_text.Language)),
 				CreatePathLink(target.SourcePath),
+				new Text(FormatBytes(target.Bytes)),
 				new Text(target.Plan.Get(_text.Language)));
 		}
 		AnsiConsole.Write(table);
@@ -515,8 +557,19 @@ public sealed class CleanupApp
 				.Title(_text.Get("migration_select"))
 				.PageSize(15)
 				.InstructionsText(_text.Get("cleanup_select_instructions"))
-				.AddChoices(targets.Select(target => new MigrationChoice(target, _text.Language))));
-		var selected = selectedChoices.Select(choice => choice.Target).ToArray();
+				.AddChoices(targets
+					.Select(target => new MigrationChoice(target, _text.Language))
+					.Prepend(MigrationChoice.Cancel(_text.Language))));
+		if (selectedChoices.Any(choice => choice.IsCancel))
+		{
+			WriteWarning(_text.Get("selection_cancelled"));
+			return 0;
+		}
+
+		var selected = selectedChoices
+			.Where(choice => choice.Target is not null)
+			.Select(choice => choice.Target!)
+			.ToArray();
 		if (selected.Length == 0)
 		{
 			WriteWarning(_text.Get("cleanup_none_selected"));
@@ -530,11 +583,20 @@ public sealed class CleanupApp
 			return 1;
 		}
 
-		var drive = AnsiConsole.Prompt(
-			new SelectionPrompt<MigrationDrive>()
+		var driveChoice = AnsiConsole.Prompt(
+			new SelectionPrompt<MigrationDriveChoice>()
 				.Title(_text.Get("migration_drive_select"))
 				.PageSize(10)
-				.AddChoices(drives));
+				.AddChoices(drives
+					.Select(drive => new MigrationDriveChoice(drive, _text.Language))
+					.Append(MigrationDriveChoice.Cancel(_text.Language))));
+		if (driveChoice.IsCancel)
+		{
+			WriteWarning(_text.Get("selection_cancelled"));
+			return 0;
+		}
+
+		var drive = driveChoice.Drive!;
 		var plan = DataMigrationService.BuildPlan(selected, drive.RootPath);
 		if (plan.Count == 0)
 		{
@@ -714,15 +776,67 @@ public sealed class CleanupApp
 		public override string ToString() => Markup.Escape(Label);
 	}
 
-	private sealed record CleanupChoice(CleanupTarget Target, AppLanguage Language)
+	private static string GetCancelLabel(AppLanguage language)
+		=> language == AppLanguage.Chinese ? "取消" : "Cancel";
+
+	private sealed record CleanupSelection(CleanupTarget? Target, AppLanguage Language, bool IsCancel = false)
 	{
+		public static CleanupSelection Cancel(AppLanguage language)
+			=> new(null, language, IsCancel: true);
+
 		public override string ToString()
-			=> Markup.Escape($"{Target.Name.Get(Language)} ({(Target.Risk == CleanupRisk.Moderate ? (Language == AppLanguage.Chinese ? "需确认" : "review") : (Language == AppLanguage.Chinese ? "安全" : "safe"))}; {FormatBytes(Target.Snapshot.Bytes)}, {Target.Snapshot.FileCount} {(Language == AppLanguage.Chinese ? "个文件" : "files")})");
+		{
+			if (IsCancel)
+			{
+				return Markup.Escape(GetCancelLabel(Language));
+			}
+
+			var target = Target!;
+			return Markup.Escape($"{target.Name.Get(Language)} ({(target.Risk == CleanupRisk.Moderate ? (Language == AppLanguage.Chinese ? "需确认" : "review") : (Language == AppLanguage.Chinese ? "安全" : "safe"))}; {FormatBytes(target.Snapshot.Bytes)}, {target.Snapshot.FileCount} {(Language == AppLanguage.Chinese ? "个文件" : "files")})");
+		}
 	}
 
-	private sealed record MigrationChoice(MigrationTarget Target, AppLanguage Language)
+	private sealed record RemnantSelection(AppDataCandidate? Candidate, AppLanguage Language, bool IsCancel = false)
 	{
+		public static RemnantSelection Cancel(AppLanguage language)
+			=> new(null, language, IsCancel: true);
+
 		public override string ToString()
-			=> Markup.Escape($"{Target.Name.Get(Language)} - {Target.SourcePath}");
+			=> IsCancel
+				? Markup.Escape(GetCancelLabel(Language))
+				: Markup.Escape($"{Candidate!.Path} ({FormatBytes(Candidate.Bytes)})");
+	}
+
+	private sealed record InstallerSelection(InstallerCandidate? Candidate, AppLanguage Language, bool IsCancel = false)
+	{
+		public static InstallerSelection Cancel(AppLanguage language)
+			=> new(null, language, IsCancel: true);
+
+		public override string ToString()
+			=> IsCancel
+				? Markup.Escape(GetCancelLabel(Language))
+				: Markup.Escape($"{Candidate!.Path} ({FormatBytes(Candidate.Bytes)})");
+	}
+
+	private sealed record MigrationChoice(MigrationTarget? Target, AppLanguage Language, bool IsCancel = false)
+	{
+		public static MigrationChoice Cancel(AppLanguage language)
+			=> new(null, language, IsCancel: true);
+
+		public override string ToString()
+			=> IsCancel
+				? Markup.Escape(GetCancelLabel(Language))
+				: Markup.Escape($"{Target!.Name.Get(Language)} - {Target.SourcePath} ({FormatBytes(Target.Bytes)})");
+	}
+
+	private sealed record MigrationDriveChoice(MigrationDrive? Drive, AppLanguage Language, bool IsCancel = false)
+	{
+		public static MigrationDriveChoice Cancel(AppLanguage language)
+			=> new(null, language, IsCancel: true);
+
+		public override string ToString()
+			=> IsCancel
+				? Markup.Escape(GetCancelLabel(Language))
+				: Markup.Escape(Drive!.RootPath);
 	}
 }

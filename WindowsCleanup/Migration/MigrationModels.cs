@@ -28,8 +28,30 @@ public sealed record MigrationTarget(
 	MigrationConfiguration Configuration,
 	IReadOnlyList<string> ProcessNames)
 {
+	public long Bytes { get; init; }
+
 	public override string ToString()
-		=> Markup.Escape($"{Name.English} - {SourcePath}");
+		=> Markup.Escape($"{Name.English} - {SourcePath} ({FormatBytes(Bytes)})");
+
+	private static string FormatBytes(long bytes)
+	{
+		const double scale = 1024;
+		if (bytes < scale)
+		{
+			return $"{bytes} B";
+		}
+
+		var units = new[] { "KB", "MB", "GB", "TB" };
+		var unit = -1;
+		double scaled = bytes;
+		while (scaled >= scale && unit < units.Length - 1)
+		{
+			scaled /= scale;
+			unit++;
+		}
+
+		return $"{scaled:0.##} {units[unit]}";
+	}
 }
 
 public sealed record MigrationDrive(string RootPath, long FreeBytes)

@@ -263,7 +263,13 @@ internal static class DataMigrationCatalog
 			return;
 		}
 
-		targets.Add(target with { SourcePath = Path.GetFullPath(target.SourcePath) });
+		var fullPath = Path.GetFullPath(target.SourcePath);
+		if (!DataMigrationService.TryGetDirectorySize(fullPath, out var bytes))
+		{
+			return;
+		}
+
+		targets.Add(target with { SourcePath = fullPath, Bytes = bytes });
 	}
 
 	private static bool IsSafeSource(string path)
