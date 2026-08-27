@@ -135,7 +135,9 @@ public sealed class CleanupApp
 		IReadOnlyList<CleanupTarget> selected;
 		if (selectAll)
 		{
-			selected = available.Where(target => !target.OptIn).ToArray();
+			selected = available
+				.Where(target => !target.OptIn && target.Risk == CleanupRisk.Safe)
+				.ToArray();
 			if (selected.Count != available.Count)
 			{
 				WriteWarning(_text.Get("cleanup_all_skipped_opt_in"));
@@ -335,10 +337,11 @@ public sealed class CleanupApp
 			}
 
 			var keep = AnsiConsole.Prompt(
-				new SelectionPrompt<string>()
+				new SelectionPrompt<DuplicateChoice>()
 					.Title(_text.Get("duplicates_select_keep"))
 					.PageSize(10)
-					.AddChoices(group.Files));
+					.AddChoices(group.Files.Select(path => new DuplicateChoice(path))))
+				.Path;
 			var reviewedGroup = group with
 			{
 				Files = new[] { keep }.Concat(group.Files.Where(path => !string.Equals(path, keep, StringComparison.OrdinalIgnoreCase))).ToArray()
@@ -587,7 +590,12 @@ public sealed class CleanupApp
 
 	private sealed record MenuEntry(string Id, string Label)
 	{
-		public override string ToString() => Label;
+		public override string ToString() => Markup.Escape(Label);
+	}
+
+	private sealed record DuplicateChoice(string Path)
+	{
+		public override string ToString() => Markup.Escape(Path);
 	}
 
 	private sealed record CleanupChoice(CleanupTarget Target, AppLanguage Language)

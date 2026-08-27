@@ -13,18 +13,19 @@ public sealed class DuplicateFinder
 
 	public static IReadOnlyList<string> GetDefaultRoots()
 	{
-		var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		var roots = new[]
 		{
 			Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
 			Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
 			Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
-			Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
-			Combine(profile, "Downloads")
+			Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
 		};
 
 		return roots
-			.Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path) && !SafeFileSystem.IsReparsePoint(path))
+			.Where(path => !string.IsNullOrWhiteSpace(path) &&
+				!UserFolderDiscovery.IsSameOrDescendant(path, UserFolderDiscovery.GetDownloadsPath()) &&
+				Directory.Exists(path) &&
+				!SafeFileSystem.IsReparsePoint(path))
 			.Select(path => Path.GetFullPath(path!))
 			.Distinct(StringComparer.OrdinalIgnoreCase)
 			.ToArray();

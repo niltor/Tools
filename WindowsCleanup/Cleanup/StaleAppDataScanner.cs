@@ -9,14 +9,24 @@ public static class StaleAppDataScanner
 	private static readonly HashSet<string> ProtectedDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
 	{
 		"Microsoft", "Packages", "Temp", "CrashDumps", "ConnectedDevicesPlatform", "Comms",
-		"D3DSCache", "NVIDIA", "AMD", "Intel", "Programs", "WindowsApps", "OneDrive"
+		"D3DSCache", "NVIDIA", "NVIDIA Corporation", "AMD", "Intel", "Programs", "WindowsApps", "OneDrive",
+		".codex", ".gemini", "Claude", "OpenAI", "ChatGPT", "Cursor", "Windsurf",
+		"Tencent", "WeChat", "QQ", "Discord", "Slack", "Signal", "Skype for Desktop", "Zoom",
+		"DingTalk", "钉钉", "Feishu", "飞书", "Lark",
+		"Douyin", "抖音", "ByteDance", "bilibili", "Bilibili", "Douyu", "斗鱼", "Huya", "虎牙",
+		"Kwai", "快手", "TikTok", "EpicGamesLauncher", "Battle.net", "GOG.com", "Steam",
+		"Riot Games", "Ubisoft Game Launcher", "Rockstar Games"
 	};
 
 	public static IReadOnlyList<AppDataCandidate> Find(int maximumCandidates = 30)
 	{
 		var candidates = new List<AppDataCandidate>();
 		var cutoff = DateTime.UtcNow.AddDays(-90);
-		var installedNames = RegistryCleaner.GetInstalledApplicationNames();
+		var installedApplications = RegistryCleaner.GetInstalledApplications();
+		var installedNames = installedApplications
+			.Select(application => RegistryCleaner.NormalizeName(application.DisplayName))
+			.Where(name => name.Length > 0)
+			.ToHashSet(StringComparer.OrdinalIgnoreCase);
 		var roots = new[]
 		{
 			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -66,7 +76,10 @@ public static class StaleAppDataScanner
 					continue;
 				}
 
-				if (lastWrite >= cutoff || LooksInstalled(name, installedNames) || ContainsExecutable(directory))
+				if (lastWrite >= cutoff ||
+					LooksInstalled(name, installedNames) ||
+					IsRegisteredApplicationDirectory(directory, installedApplications) ||
+					ContainsExecutable(directory))
 				{
 					continue;
 				}
@@ -95,6 +108,26 @@ public static class StaleAppDataScanner
 		return installedNames.Any(installed =>
 			installed.Contains(normalizedDirectory, StringComparison.OrdinalIgnoreCase) ||
 			normalizedDirectory.Contains(installed, StringComparison.OrdinalIgnoreCase));
+	}
+
+	private static bool IsRegisteredApplicationDirectory(
+		string directory,
+		IReadOnlyList<InstalledApplication> installedApplications)
+	{
+		foreach (var application in installedApplications)
+		{
+			foreach (var registeredPath in new[] { application.InstallLocation, application.ExecutablePath }
+				.Where(path => !string.IsNullOrWhiteSpace(path)))
+			{
+				if (UserFolderDiscovery.IsSameOrDescendant(directory, registeredPath) ||
+					UserFolderDiscovery.IsSameOrDescendant(registeredPath, directory))
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	private static bool ContainsExecutable(string directory)

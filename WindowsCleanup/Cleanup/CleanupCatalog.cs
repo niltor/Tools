@@ -38,7 +38,12 @@ public static class CleanupCatalog
 		Add(targets, "windows-update-download", DiskCategory,
 			new("Windows 更新下载缓存", "Windows Update download cache"),
 			new("只清理已下载的更新缓存，不碰系统组件存储。", "Only downloaded update cache is removed; the component store is untouched."),
-			Locations(Combine(windows, "SoftwareDistribution", "Download")), true, CleanupRisk.Moderate);
+			Locations(Combine(windows, "SoftwareDistribution", "Download")), true, CleanupRisk.Moderate, optIn: true);
+
+		Add(targets, "windows-downloaded-program-files", DiskCategory,
+			new("Windows 下载的程序文件", "Windows downloaded program files"),
+			new("只处理 Windows 的旧下载程序文件；不会删除系统组件。Windows 会在需要时重新下载。", "Only old downloaded program files are considered; system components are untouched and Windows can download them again."),
+			OldLocations(30, Combine(windows, "Downloaded Program Files")), true, CleanupRisk.Moderate, optIn: true);
 
 		Add(targets, "delivery-optimization", DiskCategory,
 			new("Delivery Optimization 缓存", "Delivery Optimization cache"),
@@ -46,7 +51,47 @@ public static class CleanupCatalog
 			Locations(
 				Combine(programData, "Microsoft", "Windows", "DeliveryOptimization", "Cache"),
 				Combine(windows, "ServiceProfiles", "NetworkService", "AppData", "Local", "Microsoft", "Windows", "DeliveryOptimization")),
-			true, CleanupRisk.Moderate);
+			true, CleanupRisk.Moderate, optIn: true);
+
+		Add(targets, "windows-font-cache", CacheCategory,
+			new("Windows 字体缓存", "Windows font cache"),
+			new("字体缓存可重建，但清理后 Windows 可能重新生成缓存；锁定文件会跳过。", "The font cache is rebuildable, but Windows may rebuild it after cleanup; locked files are skipped."),
+			Locations(
+				Combine(windows, "ServiceProfiles", "LocalService", "AppData", "Local", "FontCache"),
+				Combine(windows, "System32", "FNTCACHE.DAT")),
+			true, CleanupRisk.Moderate, optIn: true);
+
+		var windowsSetupLogs = OldMatchingLocations(30,
+			Combine(windows, "Panther"),
+			true,
+			"*.log", "*.etl")
+			.Concat(OldMatchingLocations(30,
+				Combine(windows, "Logs", "MoSetup"),
+				true,
+				"*.log", "*.etl"))
+			.Concat(OldMatchingLocations(30,
+				Combine(windows, "Inf"),
+				false,
+				"setupapi*.log", "setupapi*.etl"))
+			.ToArray();
+		Add(targets, "windows-setup-logs", DiskCategory,
+			new("Windows 安装诊断日志", "Windows setup diagnostics"),
+			new("只处理超过 30 天的 Panther、MoSetup 和 setupapi 诊断日志，不处理安装配置或系统组件。", "Only Panther, MoSetup, and setupapi diagnostic logs older than 30 days are considered; setup configuration and system components are untouched."),
+			windowsSetupLogs, true, CleanupRisk.Moderate, optIn: true);
+
+		var memoryDumpLocations = OldMatchingLocations(30,
+			Combine(windows, "Minidump"),
+			true,
+			"*.dmp")
+			.Concat(OldMatchingLocations(30,
+				Combine(windows, "MEMORY.DMP"),
+				false,
+				"MEMORY.DMP"))
+			.ToArray();
+		Add(targets, "system-memory-dumps", DiskCategory,
+			new("系统内存转储", "System memory dumps"),
+			new("只处理超过 30 天的 MEMORY.DMP/Minidump 诊断文件；删除后无法用于故障分析。", "Only MEMORY.DMP/Minidump diagnostics older than 30 days are considered; deleting them removes evidence useful for troubleshooting."),
+			memoryDumpLocations, true, CleanupRisk.Moderate, optIn: true);
 
 		Add(targets, "recycle-bin", DiskCategory,
 			new("C: 回收站", "C: recycle bin"),
@@ -173,12 +218,45 @@ public static class CleanupCatalog
 			new("Yandex 浏览器缓存", "Yandex Browser cache"),
 			Regenerable, yandexLocations);
 
+		var packagesRoot = Combine(local, "Packages");
 		var applicationCaches = new List<CleanupLocation>();
 		AddCacheLocations(applicationCaches, local, "Adobe", "Acrobat", "DC", "Cache");
+		AddCacheLocations(applicationCaches, local, "Adobe", "AcroCef", "DC", "Acrobat", "Cache");
+		AddCacheLocations(applicationCaches, local, "Adobe", "Acrobat", "DC", "WebCache");
 		AddCacheLocations(applicationCaches, local, "Microsoft", "Windows", "Caches");
+		AddCacheLocations(applicationCaches, local, "NVIDIA Corporation", "NVIDIA App", "CefCache");
+		AddCacheLocations(applicationCaches, local, "NVIDIA Corporation", "NVIDIA App", "Cache");
+		AddCacheLocations(applicationCaches, local, "NVIDIA Corporation", "NVIDIA Overlay", "CefCache");
+		applicationCaches.AddRange(ProfileSubdirectoryLocations(
+			Combine(local, "Microsoft", "VisualStudio"),
+			"ComponentModelCache", "ImageLibrary", "WebView2Cache"));
 		Add(targets, "application-caches", CacheCategory,
 			new("常见应用程序缓存", "Common application caches"),
-			Regenerable, applicationCaches);
+			new("只清理明确命名的应用缓存，不碰 Adobe 文档、OneDrive 同步/离线数据、Visual Studio 安装包缓存或应用配置。", "Only explicitly named application caches are considered; Adobe documents, OneDrive sync/offline data, Visual Studio installer packages, and app configuration are untouched."),
+			applicationCaches);
+
+		var packagedAppCaches = new List<CleanupLocation>();
+		var packagedCacheSuffixes = new[]
+		{
+			"Cache",
+			"Code Cache",
+			"GPUCache",
+			Path.Combine("Service Worker", "CacheStorage")
+		};
+		foreach (var packagePattern in new[]
+		{
+			"Microsoft.WindowsStore_*", "Microsoft.GamingApp_*", "Microsoft.XboxApp_*",
+			"SpotifyAB.SpotifyMusic_*", "NVIDIACorp.NVIDIAControlPanel_*",
+			"NVIDIACorp.NVIDIAApp_*", "AdvancedMicroDevicesInc-2.AMDRadeonSoftware_*",
+			"AppUp.IntelGraphicsExperience_*", "AdobeAcrobatReader_*", "Microsoft.OneDriveSync_*"
+		})
+		{
+			packagedAppCaches.AddRange(PackageCacheLocations(packagesRoot, packagePattern, "LocalCache", packagedCacheSuffixes));
+		}
+		Add(targets, "packaged-app-caches", CacheCategory,
+			new("Microsoft Store/UWP 应用缓存", "Microsoft Store/UWP app caches"),
+			new("只处理已知应用包 LocalCache 下明确命名的缓存目录；不碰 LocalState、设置、账号、同步数据或应用安装包。", "Only explicitly named cache directories under known app-package LocalCache folders are considered; LocalState, settings, accounts, sync data, and app packages are untouched."),
+			packagedAppCaches, false, CleanupRisk.Moderate, optIn: true);
 
 		var communicationCaches = new List<CleanupLocation>();
 		AddCacheLocations(communicationCaches, local, "Microsoft", "Teams", "Cache", "Code Cache", "GPUCache", Path.Combine("Service Worker", "CacheStorage"));
@@ -193,6 +271,15 @@ public static class CleanupCatalog
 		AddCacheLocations(communicationCaches, roaming, "Skype for Desktop", "Cache", "Code Cache", "GPUCache");
 		AddCacheLocations(communicationCaches, local, "Zoom", "Cache", "Code Cache", "GPUCache");
 		AddCacheLocations(communicationCaches, roaming, "Zoom", "Cache", "Code Cache", "GPUCache");
+		foreach (var application in new[] { "DingTalk", "钉钉", "Feishu", "飞书", "Lark", "WhatsApp" })
+		{
+			AddCacheLocations(communicationCaches, local, application, "Cache", "Code Cache", "GPUCache", "DawnCache");
+			AddCacheLocations(communicationCaches, roaming, application, "Cache", "Code Cache", "GPUCache", "DawnCache");
+			communicationCaches.AddRange(ProfileSubdirectoryLocations(
+				Combine(local, application), "Cache", "Code Cache", "GPUCache", "DawnCache"));
+			communicationCaches.AddRange(ProfileSubdirectoryLocations(
+				Combine(roaming, application), "Cache", "Code Cache", "GPUCache", "DawnCache"));
+		}
 		AddCacheLocations(communicationCaches, local, "Tencent", "WeChat", "Cache", "Code Cache", "GPUCache");
 		AddCacheLocations(communicationCaches, roaming, "Tencent", "WeChat", "Cache", "Code Cache", "GPUCache");
 		AddCacheLocations(communicationCaches, local, "Tencent", "QQ", "Cache", "Code Cache", "GPUCache");
@@ -245,7 +332,6 @@ public static class CleanupCatalog
 			"Cache"));
 		AddPathIfPresent(communicationCaches, Combine(local, "Tencent", "QQ", "nt_qq", "nt_data", "Cache"));
 		AddPathIfPresent(communicationCaches, Combine(roaming, "Tencent", "QQ", "nt_qq", "nt_data", "Cache"));
-		var packagesRoot = Combine(local, "Packages");
 		communicationCaches.AddRange(PackageCacheLocations(
 			packagesRoot,
 			"MSTeams_*",
@@ -255,6 +341,11 @@ public static class CleanupCatalog
 			packagesRoot,
 			"MicrosoftTeams_*",
 			Path.Combine("LocalCache", "Microsoft", "MSTeams"),
+			"Cache", "Code Cache", "GPUCache", Path.Combine("Service Worker", "CacheStorage")));
+		communicationCaches.AddRange(PackageCacheLocations(
+			packagesRoot,
+			"5319275A.WhatsAppDesktop_*",
+			"LocalCache",
 			"Cache", "Code Cache", "GPUCache", Path.Combine("Service Worker", "CacheStorage")));
 		Add(targets, "communication-caches", CacheCategory,
 			new("聊天/通讯软件缓存", "Chat and communication app caches"),
@@ -274,6 +365,10 @@ public static class CleanupCatalog
 			Combine(roaming, "Skype for Desktop", "logs"),
 			Combine(local, "Zoom", "logs"),
 			Combine(roaming, "Zoom", "logs"))
+			.Concat(new[] { "DingTalk", "钉钉", "Feishu", "飞书", "Lark", "WhatsApp" }
+				.SelectMany(application => OldLocations(30,
+					Combine(local, application, "logs"),
+					Combine(roaming, application, "logs"))))
 		.Concat(wechatFilesRoots.SelectMany(root => ProfileSubdirectoryLocations(
 			root,
 			"Logs", "Log", Path.Combine("FileStorage", "Logs"), Path.Combine("FileStorage", "Log")))
@@ -288,7 +383,9 @@ public static class CleanupCatalog
 
 		var videoApplications = new[]
 		{
-			"Douyin", "抖音", "ByteDance", "bilibili", "哔哩哔哩", "Douyu", "斗鱼", "Huya", "虎牙", "Kwai", "快手", "YY", "TikTok"
+			"Douyin", "抖音", "ByteDance", "bilibili", "哔哩哔哩", "Douyu", "斗鱼", "Huya", "虎牙",
+			"Kwai", "快手", "YY", "TikTok", "Tencent Video", "腾讯视频", "QQLive", "Youku", "优酷",
+			"iQIYI", "IQIYI", "爱奇艺", "MangoTV", "芒果TV", "XiguaVideo", "西瓜视频"
 		};
 		var videoCacheSuffixes = new[]
 		{
@@ -304,9 +401,15 @@ public static class CleanupCatalog
 			var cachePaths = new[] { application }.Concat(videoCacheSuffixes).ToArray();
 			AddCacheLocations(videoCaches, local, cachePaths);
 			AddCacheLocations(videoCaches, roaming, cachePaths);
+			videoCaches.AddRange(ProfileSubdirectoryLocations(Combine(local, application), videoCacheSuffixes));
+			videoCaches.AddRange(ProfileSubdirectoryLocations(Combine(roaming, application), videoCacheSuffixes));
 		}
 
-		foreach (var packagePattern in new[] { "Douyin*", "ByteDance*", "BiliBili*", "Bilibili*", "Kwai*", "Huya*", "Douyu*" })
+		foreach (var packagePattern in new[]
+		{
+			"Douyin*", "ByteDance*", "BiliBili*", "Bilibili*", "Kwai*", "Huya*", "Douyu*",
+			"TencentVideo*", "QQLive*", "Youku*", "iQIYI*", "IQIYI*", "MangoTV*", "Xigua*"
+		})
 		{
 			videoCaches.AddRange(PackageCacheLocations(packagesRoot, packagePattern, "LocalCache", videoCacheSuffixes));
 		}
@@ -324,6 +427,10 @@ public static class CleanupCatalog
 				Combine(local, application, "logs"),
 				Combine(roaming, application, "Logs"),
 				Combine(roaming, application, "logs")));
+			videoLogs.AddRange(ProfileSubdirectoryLocations(Combine(local, application), "Logs", "logs")
+				.Select(location => location with { MinimumAgeDays = 30 }));
+			videoLogs.AddRange(ProfileSubdirectoryLocations(Combine(roaming, application), "Logs", "logs")
+				.Select(location => location with { MinimumAgeDays = 30 }));
 		}
 		videoLogs.AddRange(OldLocations(30,
 			Combine(roaming, "obs-studio", "logs"),
@@ -347,20 +454,55 @@ public static class CleanupCatalog
 		AddCacheLocations(launcherCaches, local, "Blizzard Entertainment", "Battle.net", "Cache");
 		AddCacheLocations(launcherCaches, local, "GOG.com", "Galaxy", "webcache");
 		AddCacheLocations(launcherCaches, local, "Electronic Arts", "EA Desktop", "cache");
+		AddCacheLocations(launcherCaches, local, "Riot Games", "Riot Client", "UX", "Cache", "Code Cache", "GPUCache");
+		AddCacheLocations(launcherCaches, local, "Ubisoft Game Launcher", "cache", "webcache");
+		AddCacheLocations(launcherCaches, roaming, "Ubisoft Game Launcher", "cache", "webcache");
+		AddCacheLocations(launcherCaches, local, "Rockstar Games", "Launcher", "webcache", "Cache");
+		AddCacheLocations(launcherCaches, roaming, "Rockstar Games", "Launcher", "webcache", "Cache");
+		foreach (var steamLibrary in SteamLibraryDiscovery.FindLibraries())
+		{
+			AddPathIfPresent(launcherCaches, Combine(steamLibrary, "htmlcache"));
+			AddPathIfPresent(launcherCaches, Combine(steamLibrary, "appcache", "httpcache"));
+			AddPathIfPresent(launcherCaches, Combine(steamLibrary, "steamapps", "shadercache"));
+		}
 		Add(targets, "launcher-caches", CacheCategory,
 			new("游戏启动器网页/着色器缓存", "Game launcher web/shader caches"),
 			new("只清理启动器明确标记为缓存的目录，不碰游戏文件、存档或登录信息；默认需手动选择。", "Only launcher directories explicitly named as caches are considered; game files, saves, and login data are untouched. Manual opt-in is required."),
 			launcherCaches, false, CleanupRisk.Moderate, optIn: true);
 
-		Add(targets, "old-updater-downloads", CacheCategory,
-			new("旧软件升级下载包", "Old software updater downloads"),
-			new("只处理已超过 14 天的常见更新器下载文件；正在使用或锁定的文件会跳过。", "Only common updater downloads older than 14 days are considered; active or locked files are skipped."),
-			OldLocations(14,
-				Combine(local, "Google", "Update", "Download"),
-				Combine(local, "Microsoft", "EdgeUpdate", "Download"),
-				Combine(programData, "Microsoft", "EdgeUpdate", "Download"),
-				Combine(local, "SquirrelTemp")),
-			false, CleanupRisk.Moderate, optIn: true);
+		var launcherLogs = OldLocations(30,
+			Combine(local, "EpicGamesLauncher", "Saved", "Logs"),
+			Combine(local, "Battle.net", "Logs"),
+			Combine(local, "Blizzard Entertainment", "Battle.net", "Logs"),
+			Combine(local, "GOG.com", "Galaxy", "logs"),
+			Combine(local, "Electronic Arts", "EA Desktop", "logs"),
+			Combine(local, "Riot Games", "Riot Client", "Logs"),
+			Combine(local, "Ubisoft Game Launcher", "logs"),
+			Combine(roaming, "Ubisoft Game Launcher", "logs"),
+			Combine(local, "Rockstar Games", "Launcher", "Logs"),
+			Combine(roaming, "Rockstar Games", "Launcher", "Logs"));
+		Add(targets, "launcher-logs", PrivacyCategory,
+			new("游戏启动器旧日志", "Old game launcher logs"),
+			new("只处理超过 30 天的启动器日志，不碰游戏文件、存档、下载队列或登录数据；默认需手动选择。", "Only launcher logs older than 30 days are considered; game files, saves, download queues, and login data are untouched. Manual opt-in is required."),
+			launcherLogs, false, CleanupRisk.Moderate, optIn: true);
+
+		var updaterTransientFiles = new List<CleanupLocation>();
+		foreach (var updaterPath in new[]
+		{
+			Combine(local, "Google", "Update", "Download"),
+			Combine(local, "Microsoft", "EdgeUpdate", "Download"),
+			Combine(programData, "Microsoft", "EdgeUpdate", "Download"),
+			Combine(local, "SquirrelTemp"),
+			Combine(roaming, "Microsoft", "Teams", "packages", "squirreltemp")
+		})
+		{
+			updaterTransientFiles.AddRange(OldMatchingLocations(14, updaterPath, true,
+				"*.tmp", "*.temp", "*.crdownload", "*.partial", "*.download", "*.log", "*.etl"));
+		}
+		Add(targets, "old-updater-transients", CacheCategory,
+			new("旧软件升级临时碎片/日志", "Old software updater fragments/logs"),
+			new("只处理常见软件自有更新目录中超过 14 天的临时碎片和日志；完整安装包/升级包需使用单独的逐文件审核，不碰用户 Downloads。", "Only temporary fragments and logs older than 14 days in common app-owned updater directories are considered; complete installer/update packages require separate per-file review, and user Downloads is untouched."),
+			updaterTransientFiles, false, CleanupRisk.Moderate, optIn: true);
 
 		var aiCaches = new List<CleanupLocation>();
 		AddPathIfPresent(aiCaches, Combine(userProfile, ".codex", "cache"));
@@ -404,19 +546,64 @@ public static class CleanupCatalog
 
 		var developerCaches = new List<CleanupLocation>();
 		AddCacheLocations(developerCaches, local, "npm-cache");
+		AddPathIfPresent(developerCaches, GetEnvironmentPath("npm_config_cache"));
 		AddCacheLocations(developerCaches, local, "pip", "Cache");
+		AddPathIfPresent(developerCaches, GetEnvironmentPath("PIP_CACHE_DIR"));
 		AddCacheLocations(developerCaches, local, "NuGet", "v3-cache");
 		AddCacheLocations(developerCaches, local, "NuGet", "plugins-cache");
+		AddPathIfPresent(developerCaches, GetEnvironmentPath("NUGET_HTTP_CACHE_PATH"));
 		AddCacheLocations(developerCaches, local, "Yarn", "Cache");
+		AddPathIfPresent(developerCaches, GetEnvironmentPath("YARN_CACHE_FOLDER"));
+		AddPathIfPresent(developerCaches, Combine(local, "pnpm", "store"));
+		AddPathIfPresent(developerCaches, Combine(userProfile, ".pnpm-store"));
+		AddPathIfPresent(developerCaches, Combine(programData, "chocolatey", "cache"));
+		AddPathIfPresent(developerCaches, Combine(userProfile, "scoop", "cache"));
 		AddCacheLocations(developerCaches, roaming, "Code", "Cache");
 		AddCacheLocations(developerCaches, roaming, "Code", "CachedData");
 		AddCacheLocations(developerCaches, roaming, "Code", "Code Cache");
 		AddCacheLocations(developerCaches, roaming, "Code", "GPUCache");
+		AddCacheLocations(developerCaches, local, "Code", "Cache");
+		AddCacheLocations(developerCaches, local, "Code", "CachedData");
+		AddCacheLocations(developerCaches, local, "Code", "Code Cache");
+		AddCacheLocations(developerCaches, local, "Code", "GPUCache");
+		AddCacheLocations(developerCaches, roaming, "Code - Insiders", "Cache", "CachedData", "Code Cache", "GPUCache");
+		AddCacheLocations(developerCaches, local, "Code - Insiders", "Cache", "CachedData", "Code Cache", "GPUCache");
 		AddPathIfPresent(developerCaches, Combine(userProfile, ".gradle", "caches"));
-		developerCaches.AddRange(ProfileSubdirectoryLocations(Combine(local, "JetBrains"), "caches", "log", "tmp"));
+		developerCaches.AddRange(ProfileSubdirectoryLocations(Combine(local, "JetBrains"), "caches"));
+		developerCaches.AddRange(ProfileSubdirectoryLocations(Combine(local, "JetBrains"), "log", "tmp")
+			.Select(location => location with { MinimumAgeDays = 30 }));
+		AddPathIfPresent(developerCaches, Combine(userProfile, ".android", "cache"));
+
+		var ageLimitedDeveloperCaches = new List<CleanupLocation>();
+		ageLimitedDeveloperCaches.AddRange(OldLocations(90,
+			Combine(userProfile, ".m2", "repository")));
+		ageLimitedDeveloperCaches.AddRange(OldLocations(30,
+			Combine(local, "go-build"),
+			GetEnvironmentPath("GOCACHE")));
+		foreach (var gopath in GetEnvironmentPaths("GOPATH").Append(Combine(userProfile, "go")).Where(path => !string.IsNullOrWhiteSpace(path)))
+		{
+			ageLimitedDeveloperCaches.AddRange(OldLocations(30,
+				Combine(gopath, "pkg", "mod", "cache", "download")));
+		}
+
+		foreach (var cargoHome in GetEnvironmentPaths("CARGO_HOME").Append(Combine(userProfile, ".cargo")).Where(path => !string.IsNullOrWhiteSpace(path)))
+		{
+			ageLimitedDeveloperCaches.AddRange(OldLocations(30,
+				Combine(cargoHome, "registry", "cache"),
+				Combine(cargoHome, "registry", "src"),
+				Combine(cargoHome, "git", "db"),
+				Combine(cargoHome, "git", "checkouts")));
+		}
+
+		foreach (var condaPackages in GetEnvironmentPaths("CONDA_PKGS_DIRS"))
+		{
+			ageLimitedDeveloperCaches.AddRange(OldMatchingLocations(30, condaPackages, true, "*.conda", "*.tar.bz2"));
+		}
+
+		developerCaches.AddRange(ageLimitedDeveloperCaches);
 		Add(targets, "developer-caches", DeveloperCategory,
 			new("开发工具下载/构建缓存", "Developer download/build caches"),
-			new("可重新生成，但清理后可能需要重新下载依赖；默认不纳入 --all。", "Regenerable, but dependencies may need to be downloaded again; excluded from --all by default."),
+			new("包含 npm/pip/NuGet/Yarn/pnpm、Gradle、JetBrains、Maven、Cargo、Go、Conda、Scoop/Chocolatey 等明确缓存或依赖目录；清理后可能需要重新下载，默认不纳入 --all。", "Includes explicit npm/pip/NuGet/Yarn/pnpm, Gradle, JetBrains, Maven, Cargo, Go, Conda, Scoop/Chocolatey cache or dependency directories; cleanup may require downloads and is excluded from --all by default."),
 			developerCaches, false, CleanupRisk.Moderate, optIn: true);
 
 		Add(targets, "windows-old-logs", DiskCategory,
@@ -450,21 +637,40 @@ public static class CleanupCatalog
 	}
 
 	private static IEnumerable<CleanupLocation> Locations(params string?[] paths)
-		=> paths.Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => new CleanupLocation(path!));
+		=> paths
+			.Where(path => !string.IsNullOrWhiteSpace(path) && !IsUserDownloadsPath(path))
+			.Select(path => new CleanupLocation(path!));
 
 	private static IEnumerable<CleanupLocation> Locations(
 		string? path,
 		CleanupLocationKind kind,
 		string? pattern = null,
 		bool recursive = true)
-		=> string.IsNullOrWhiteSpace(path)
+		=> string.IsNullOrWhiteSpace(path) || IsUserDownloadsPath(path)
 			? Array.Empty<CleanupLocation>()
 			: new[] { new CleanupLocation(path, kind, pattern, recursive) };
 
 	private static IEnumerable<CleanupLocation> OldLocations(int minimumAgeDays, params string?[] paths)
 		=> paths
-			.Where(path => !string.IsNullOrWhiteSpace(path))
+			.Where(path => !string.IsNullOrWhiteSpace(path) && !IsUserDownloadsPath(path))
 			.Select(path => new CleanupLocation(path!, MinimumAgeDays: minimumAgeDays));
+
+	private static IEnumerable<CleanupLocation> OldMatchingLocations(
+		int minimumAgeDays,
+		string? path,
+		bool recursive,
+		params string[] patterns)
+		=> string.IsNullOrWhiteSpace(path) || IsUserDownloadsPath(path)
+			? Array.Empty<CleanupLocation>()
+			: patterns
+				.Where(pattern => !string.IsNullOrWhiteSpace(pattern))
+				.Select(pattern => new CleanupLocation(
+					path!,
+					CleanupLocationKind.MatchingFiles,
+					pattern,
+					recursive,
+					minimumAgeDays))
+			.ToArray();
 
 	private static void AddCacheLocations(
 		ICollection<CleanupLocation> locations,
@@ -481,7 +687,7 @@ public static class CleanupCatalog
 		foreach (var cachePart in pathParts.Skip(firstCachePart))
 		{
 			var path = Combine(root, appParts.Concat(new[] { cachePart }).ToArray());
-			if (!string.IsNullOrWhiteSpace(path))
+			if (!string.IsNullOrWhiteSpace(path) && !IsUserDownloadsPath(path))
 			{
 				locations.Add(new CleanupLocation(path));
 			}
@@ -490,7 +696,7 @@ public static class CleanupCatalog
 
 	private static IEnumerable<CleanupLocation> ProfileCacheLocations(string? profileRoot, params string[] suffixes)
 	{
-		if (string.IsNullOrWhiteSpace(profileRoot) || !Directory.Exists(profileRoot))
+		if (string.IsNullOrWhiteSpace(profileRoot) || IsUserDownloadsPath(profileRoot) || !Directory.Exists(profileRoot))
 		{
 			return Array.Empty<CleanupLocation>();
 		}
@@ -510,7 +716,7 @@ public static class CleanupCatalog
 
 	private static IEnumerable<CleanupLocation> DirectCacheLocations(string? root, params string[] suffixes)
 	{
-		if (string.IsNullOrWhiteSpace(root))
+		if (string.IsNullOrWhiteSpace(root) || IsUserDownloadsPath(root))
 		{
 			return Array.Empty<CleanupLocation>();
 		}
@@ -520,7 +726,7 @@ public static class CleanupCatalog
 
 	private static IEnumerable<CleanupLocation> BrowserTransientLocations(string? profileRoot)
 	{
-		if (string.IsNullOrWhiteSpace(profileRoot))
+		if (string.IsNullOrWhiteSpace(profileRoot) || IsUserDownloadsPath(profileRoot))
 		{
 			return Array.Empty<CleanupLocation>();
 		}
@@ -533,7 +739,7 @@ public static class CleanupCatalog
 
 	private static IEnumerable<CleanupLocation> ProfileSubdirectoryLocations(string? root, params string[] suffixes)
 	{
-		if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+		if (string.IsNullOrWhiteSpace(root) || IsUserDownloadsPath(root) || !Directory.Exists(root))
 		{
 			return Array.Empty<CleanupLocation>();
 		}
@@ -557,7 +763,7 @@ public static class CleanupCatalog
 		string relativeRoot,
 		params string[] suffixes)
 	{
-		if (string.IsNullOrWhiteSpace(packagesRoot) || !Directory.Exists(packagesRoot))
+		if (string.IsNullOrWhiteSpace(packagesRoot) || IsUserDownloadsPath(packagesRoot) || !Directory.Exists(packagesRoot))
 		{
 			return Array.Empty<CleanupLocation>();
 		}
@@ -580,7 +786,7 @@ public static class CleanupCatalog
 		string relativeRoot,
 		params string[] suffixes)
 	{
-		if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+		if (string.IsNullOrWhiteSpace(root) || IsUserDownloadsPath(root) || !Directory.Exists(root))
 		{
 			return Array.Empty<CleanupLocation>();
 		}
@@ -600,9 +806,98 @@ public static class CleanupCatalog
 
 	private static void AddPathIfPresent(ICollection<CleanupLocation> locations, string? path)
 	{
-		if (!string.IsNullOrWhiteSpace(path))
+		var expandedPath = NormalizeOptionalPath(path);
+		if (!string.IsNullOrWhiteSpace(expandedPath))
 		{
-			locations.Add(new CleanupLocation(path));
+			locations.Add(new CleanupLocation(expandedPath));
+		}
+	}
+
+	private static bool IsUserDownloadsPath(string? path)
+		=> UserFolderDiscovery.IsSameOrDescendant(path, UserFolderDiscovery.GetDownloadsPath());
+
+	private static string? GetEnvironmentPath(string variableName)
+		=> NormalizeOptionalPath(Environment.GetEnvironmentVariable(variableName));
+
+	private static IEnumerable<string> GetEnvironmentPaths(string variableName)
+	{
+		var value = Environment.GetEnvironmentVariable(variableName);
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			return Array.Empty<string>();
+		}
+
+		return value
+			.Split(new[] { ';', Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+			.Select(NormalizeOptionalPath)
+			.Where(path => !string.IsNullOrWhiteSpace(path))
+			.Select(path => path!)
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToArray();
+	}
+
+	private static string? ExpandEnvironmentPath(string? path)
+	{
+		if (string.IsNullOrWhiteSpace(path))
+		{
+			return null;
+		}
+
+		try
+		{
+			return Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
+		}
+		catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
+		{
+			return null;
+		}
+	}
+
+	private static string? NormalizeOptionalPath(string? path)
+	{
+		var expandedPath = ExpandEnvironmentPath(path);
+		if (string.IsNullOrWhiteSpace(expandedPath))
+		{
+			return null;
+		}
+
+		try
+		{
+			if (!Path.IsPathRooted(expandedPath))
+			{
+				return null;
+			}
+
+			var fullPath = Path.GetFullPath(expandedPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+			var pathRoot = Path.GetPathRoot(fullPath)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+			if (string.Equals(fullPath, pathRoot, StringComparison.OrdinalIgnoreCase))
+			{
+				return null;
+			}
+
+			var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+			var userDownloads = UserFolderDiscovery.GetDownloadsPath();
+			var broadRoots = new[]
+			{
+				userProfile,
+				Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+				Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+				Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+				Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+				Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
+			};
+			if (broadRoots.Any(root => !string.IsNullOrWhiteSpace(root) &&
+				string.Equals(fullPath, root!.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)) ||
+				UserFolderDiscovery.IsSameOrDescendant(fullPath, userDownloads))
+			{
+				return null;
+			}
+
+			return fullPath;
+		}
+		catch (Exception exception) when (exception is ArgumentException or IOException or NotSupportedException)
+		{
+			return null;
 		}
 	}
 
@@ -637,7 +932,8 @@ public static class CleanupCatalog
 
 	private static void AddDistinctPath(ICollection<string> paths, string? path)
 	{
-		if (string.IsNullOrWhiteSpace(path))
+		if (string.IsNullOrWhiteSpace(path) ||
+			UserFolderDiscovery.IsSameOrDescendant(path, UserFolderDiscovery.GetDownloadsPath()))
 		{
 			return;
 		}
