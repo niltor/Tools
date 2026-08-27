@@ -5,15 +5,51 @@ namespace WindowsCleanup.Cleanup;
 internal static class UserFolderDiscovery
 {
 	private const string DownloadsKnownFolderId = "{374DE290-123F-4565-9164-39C4925E467B}";
-	private static readonly Lazy<string?> DownloadsPath = new(DiscoverDownloadsPath);
+	private const string DocumentsKnownFolderId = "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}";
+	private const string MusicKnownFolderId = "{4BD8D571-6D19-48D3-BE97-422220080E43}";
+	private const string VideosKnownFolderId = "{18989B1D-99B5-455B-841C-AB7C74E4DDFC}";
+	private static readonly Lazy<string?> DownloadsPath = new(() => DiscoverPath(
+		DownloadsKnownFolderId,
+		Environment.SpecialFolder.UserProfile,
+		"Downloads"));
+	private static readonly Lazy<string?> DocumentsPath = new(() => DiscoverPath(
+		DocumentsKnownFolderId,
+		Environment.SpecialFolder.MyDocuments,
+		"Documents"));
+	private static readonly Lazy<string?> MusicPath = new(() => DiscoverPath(
+		MusicKnownFolderId,
+		Environment.SpecialFolder.MyMusic,
+		"Music"));
+	private static readonly Lazy<string?> VideosPath = new(() => DiscoverPath(
+		VideosKnownFolderId,
+		Environment.SpecialFolder.MyVideos,
+		"Videos"));
 
 	public static string? GetDownloadsPath()
 		=> DownloadsPath.Value;
 
-	private static string? DiscoverDownloadsPath()
+	public static string? GetDocumentsPath()
+		=> DocumentsPath.Value;
+
+	public static string? GetMusicPath()
+		=> MusicPath.Value;
+
+	public static string? GetVideosPath()
+		=> VideosPath.Value;
+
+	public static string? GetPath(string knownFolderId, Environment.SpecialFolder fallbackFolder, string fallbackName)
+		=> DiscoverPath(knownFolderId, fallbackFolder, fallbackName);
+
+	private static string? DiscoverPath(
+		string knownFolderId,
+		Environment.SpecialFolder fallbackFolder,
+		string fallbackName)
 	{
+		var fallbackRoot = Environment.GetFolderPath(fallbackFolder);
 		var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-		var fallback = Combine(profile, "Downloads");
+		var fallback = fallbackFolder == Environment.SpecialFolder.UserProfile
+			? Combine(profile, fallbackName)
+			: string.IsNullOrWhiteSpace(fallbackRoot) ? Combine(profile, fallbackName) : fallbackRoot;
 		if (!OperatingSystem.IsWindows())
 		{
 			return fallback;
@@ -24,7 +60,7 @@ internal static class UserFolderDiscovery
 			using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
 				@"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
 				writable: false);
-			var configuredPath = key?.GetValue(DownloadsKnownFolderId)?.ToString();
+			var configuredPath = key?.GetValue(knownFolderId)?.ToString();
 			var expandedPath = Expand(configuredPath);
 			return string.IsNullOrWhiteSpace(expandedPath) ? fallback : expandedPath;
 		}

@@ -37,14 +37,17 @@ winclean --clean --all
 # 预览/清理当前用户的注册表使用记录
 winclean --registry
 
-# 查找完全相同的重复文件，并逐组确认是否删除副本
+# 查找完全相同的重复文件，仅列表展示，不删除
 winclean --duplicates
 
-# 仅显示长期未变化的 AppData 残留候选
+# 审核长期未变化的 AppData 残留候选，可多选删除
 winclean --remnants
 
-# 扫描旧安装包/升级包候选；删除时逐文件选择并确认
+# 按软件/厂商更新暂存目录、卸载注册表路径、扩展名和命名语义扫描候选
 winclean --packages
+
+# 迁移 C 盘用户目录、开发工具目录和已确认可配置的软件数据
+winclean --migration
 
 # 任意支持清理的命令都可以加 --dry-run 只预览
 winclean --clean --dry-run
@@ -70,7 +73,7 @@ winclean --packages --dry-run
 - VS Code、npm、pip、NuGet、Yarn、pnpm、Gradle、JetBrains、Maven、Cargo、Go、Conda、Scoop/Chocolatey 等开发工具缓存（默认需手动选择）
 - 当前用户的最近项目/跳转列表文件
 - 当前用户崩溃转储
-- 软件/厂商自有更新暂存目录，以及通过卸载注册表关联到的已安装软件更新路径中超过 30 天、至少 20 MB 的安装包候选（逐文件审核）；当前用户 Downloads 不会被默认扫描
+- 软件/厂商自有更新暂存目录，以及通过卸载注册表关联到的已安装软件更新路径中的安装包候选；按扩展名、安装/升级/驱动命名标记和目录语义筛选，至少 20 MB，逐文件审核。不会进行全盘按文件名猜测
 
 ## 安全边界
 
@@ -81,9 +84,28 @@ winclean --packages --dry-run
 - 不自动清理 `Windows\Installer`、`WinSxS`、`Windows.old`、驱动包、浏览器历史/登录信息、Docker 数据或游戏文件；系统组件存储应使用 Windows 官方 DISM 流程。用户 Downloads 也不属于默认清理根目录。
 - 不清理 `.codex` 中的会话、项目、技能、插件、附件、记忆、配置和密钥，也不清理 HuggingFace/Ollama/LM Studio 等 AI 模型目录。
 - 不清理 `Windows\System32\DriverStore`、活动驱动文件、聊天数据库、聊天媒体或附件、视频下载/离线缓存；NVIDIA `Installer2` 仅作为逐项审核的安装包候选。
-- 重复文件只在常用用户文件夹中查找完全相同的文件，默认保留每组排序后的第一份，并逐组询问。
-- AppData 卸载残留无法被 Windows 可靠识别，工具只列出保守候选，不自动删除。
+- 重复文件只在常用用户文件夹中查找完全相同的文件，仅列表展示，不提供删除操作。
+- AppData 卸载残留候选来自 Local、Roaming、LocalLow 的一级目录；排除系统/常见软件、已安装软件注册表路径和包含可执行文件的目录。可多选删除，删除前会重新核验，并只处理达到保守时间条件的文件。
 - Windows 更新、系统目录通常需要管理员权限；非管理员运行时无法访问的文件会被跳过。
+
+## C 盘数据迁移
+
+迁移菜单（或 `--migration`）先扫描当前仍位于系统盘的目录，再多选项目、选择其他固定盘，展示源路径、目标路径和配置更新方案。复制、校验和配置更新成功后才会清理原目录；目标目录已有内容、空间不足、路径变化或相关进程正在运行时会跳过。终端/应用环境变量的修改对新启动的进程生效。
+
+支持的迁移方案包括：
+
+- Documents、Downloads、Music、Videos：更新 Windows `User Shell Folders`/`Shell Folders`，并调用 `SHSetKnownFolderPath`。
+- NuGet：迁移 global packages、HTTP cache、plugins cache，分别设置 `NUGET_PACKAGES`、`NUGET_HTTP_CACHE_PATH`、`NUGET_PLUGINS_CACHE_PATH`。
+- npm：迁移 cache，设置 `npm_config_cache`；Yarn：迁移全局缓存，设置 `YARN_CACHE_FOLDER`，不自动改写项目 `.yarnrc.yml`。
+- pnpm：通过 `pnpm store path` 发现目录，迁移后执行 `pnpm config set store-dir <新路径> --global`。
+- pip、uv：分别设置 `PIP_CACHE_DIR`、`UV_CACHE_DIR`；uv 按完整缓存目录迁移，不拆分缓存条目。
+- Go、Dart/Flutter：迁移 `GOMODCACHE`、`GOCACHE`、`PUB_CACHE` 指向的目录。
+- Poetry、Composer、vcpkg：分别迁移并设置 `POETRY_CACHE_DIR`、`COMPOSER_CACHE_DIR`、`VCPKG_DEFAULT_BINARY_CACHE`；不迁移项目虚拟环境、`vendor` 或源码树。
+- Cargo、Gradle：仅在用户已显式设置 `CARGO_HOME`/`GRADLE_USER_HOME` 时提供完整用户目录迁移，因为其中可能包含配置、脚本和凭据。
+- 微信：仅当检测到微信注册表中的 `FileSavePath` 且路径存在时提供迁移，关闭微信后复制完整数据并更新该设置。
+- Codex CLI：仅当用户已显式设置 `CODEX_HOME` 时提供；不会猜测桌面 Codex 应用的内部路径。Hugging Face 使用 `HF_HOME`，Ollama 使用 `OLLAMA_MODELS`。
+
+QQ、Discord、Slack、Teams、ChatGPT/Claude Desktop、Cursor、Windsurf 等软件如果没有确认的用户数据路径配置，不会被自动列为迁移目标；清理功能也不会删除其聊天数据库、媒体、会话、AI 模型或密钥。
 
 ## 构建
 

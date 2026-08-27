@@ -69,6 +69,7 @@ winclean --registry
 winclean --duplicates
 winclean --remnants
 winclean --packages
+winclean --migration
 ```
 
-所有删除操作都需要交互确认；`--scan` 和 `--dry-run` 只预览，不删除文件。`--clean --all` 只选择默认安全项目，交互式 `--clean` 可手动选择需确认项目。工具只清理可重新生成的临时文件/缓存、C: 回收站和当前用户的使用记录；安装包、卸载残留和失效注册表路径均采用人工审核，用户 `Downloads` 不属于默认清理范围。不会自动删除未知 AppData、重复文件（逐组确认）、系统关键目录或所谓的“孤儿注册表”。详见 [`WindowsCleanup/README.md`](WindowsCleanup/README.md)。
+所有删除操作都需要交互确认；`--scan` 和 `--dry-run` 只预览，不删除文件。`--clean --all` 只选择默认安全项目，交互式 `--clean` 可手动选择需确认项目。工具只清理可重新生成的临时文件/缓存、C: 回收站和当前用户的使用记录；安装包与卸载残留均采用人工审核，重复文件只列表展示。`--migration` 会在单独确认后把选中的用户目录、开发工具目录或已确认可配置的软件数据迁移到其他固定盘，并更新对应配置。详见 [`WindowsCleanup/README.md`](WindowsCleanup/README.md)。

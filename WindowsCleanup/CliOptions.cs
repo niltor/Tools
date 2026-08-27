@@ -12,7 +12,8 @@ public enum CliCommand
 	Registry,
 	Duplicates,
 	Remnants,
-	Packages
+	Packages,
+	Migration
 }
 
 public sealed record CliOptions(
@@ -113,6 +114,16 @@ public static class CliOptionsParser
 
 					break;
 
+				case "--migration":
+				case "--migrate":
+					if (!TrySetCommand(CliCommand.Migration, ref command, ref error))
+					{
+						options = default!;
+						return false;
+					}
+
+					break;
+
 				case "--dry-run":
 					dryRun = true;
 					break;
@@ -145,9 +156,10 @@ public static class CliOptionsParser
 		AnsiConsole.WriteLine("  --clean             " + (text.Language == AppLanguage.Chinese ? "交互式选择并清理" : "Interactively select and clean"));
 		AnsiConsole.WriteLine("  --clean --all       " + (text.Language == AppLanguage.Chinese ? "选择默认安全项目（仍需确认）" : "Select default-safe items (confirmation still required)"));
 		AnsiConsole.WriteLine("  --registry           " + (text.Language == AppLanguage.Chinese ? "预览并清理当前用户注册表记录" : "Preview and clean current-user registry history"));
-		AnsiConsole.WriteLine("  --duplicates         " + (text.Language == AppLanguage.Chinese ? "查找并逐组审核重复文件" : "Find and review duplicate files by group"));
-		AnsiConsole.WriteLine("  --remnants           " + (text.Language == AppLanguage.Chinese ? "显示卸载应用残留候选" : "Show uninstalled-app residue candidates"));
+		AnsiConsole.WriteLine("  --duplicates         " + (text.Language == AppLanguage.Chinese ? "查找并列表展示重复文件（不删除）" : "Find and list duplicate files (no deletion)"));
+		AnsiConsole.WriteLine("  --remnants           " + (text.Language == AppLanguage.Chinese ? "审核并可多选清理卸载应用残留" : "Review and multi-select uninstalled-app residue cleanup"));
 		AnsiConsole.WriteLine("  --packages           " + (text.Language == AppLanguage.Chinese ? "审核旧安装包/升级包候选" : "Review old installer/update package candidates"));
+		AnsiConsole.WriteLine("  --migration          " + (text.Language == AppLanguage.Chinese ? "迁移 C 盘用户、开发工具和支持的软件数据" : "Migrate C: user, developer, and supported app data"));
 		AnsiConsole.WriteLine("  --dry-run            " + (text.Language == AppLanguage.Chinese ? "预览，不执行删除/修改" : "Preview without deleting or modifying"));
 		AnsiConsole.WriteLine("  -h, --help           " + (text.Language == AppLanguage.Chinese ? "显示帮助" : "Show help"));
 		AnsiConsole.WriteLine();

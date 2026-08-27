@@ -1,7 +1,9 @@
 using System.Security.Principal;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 using WindowsCleanup.Cleanup;
 using WindowsCleanup.Localization;
+using WindowsCleanup.Migration;
 using WindowsCleanup.Registry;
 
 namespace WindowsCleanup;
@@ -40,9 +42,10 @@ public sealed class CleanupApp
 			CliCommand.Scan => RunSafeCleanup(selectAll: false, dryRun: true),
 			CliCommand.Clean => RunSafeCleanup(options.SelectAll, options.DryRun),
 			CliCommand.Registry => RunRegistryCleanup(options.DryRun),
-			CliCommand.Duplicates => await RunDuplicatesAsync(options.DryRun).ConfigureAwait(false),
-			CliCommand.Remnants => RunRemnants(),
+			CliCommand.Duplicates => await RunDuplicatesAsync().ConfigureAwait(false),
+			CliCommand.Remnants => RunRemnants(options.DryRun),
 			CliCommand.Packages => RunInstallerCandidates(options.DryRun),
+			CliCommand.Migration => RunDataMigration(options.DryRun),
 			_ => 0
 		};
 	}
@@ -59,7 +62,7 @@ public sealed class CleanupApp
 				new MenuEntry("duplicates", _text.Get("menu_duplicates")),
 				new MenuEntry("remnants", _text.Get("menu_remnants")),
 				new MenuEntry("packages", _text.Get("menu_packages")),
-				new MenuEntry("help", _text.Get("menu_help")),
+				new MenuEntry("migration", _text.Get("menu_migration")),
 				new MenuEntry("exit", _text.Get("menu_exit"))
 			};
 
@@ -78,16 +81,16 @@ public sealed class CleanupApp
 					RunRegistryCleanup(dryRun: false);
 					break;
 				case "duplicates":
-					await RunDuplicatesAsync(dryRun: false).ConfigureAwait(false);
+					await RunDuplicatesAsync().ConfigureAwait(false);
 					break;
 				case "remnants":
-					RunRemnants();
+					RunRemnants(dryRun: false);
 					break;
 				case "packages":
 					RunInstallerCandidates(dryRun: false);
 					break;
-				case "help":
-					ShowHelp();
+				case "migration":
+					RunDataMigration(dryRun: false);
 					break;
 				case "exit":
 					WriteSuccess(_text.Get("exit_message"));
@@ -281,7 +284,7 @@ public sealed class CleanupApp
 		return result.FailedTargets == 0 ? 0 : 1;
 	}
 
-	private async Task<int> RunDuplicatesAsync(bool dryRun)
+	private async Task<int> RunDuplicatesAsync()
 	{
 		AnsiConsole.Write(new Rule(_text.Get("duplicates_title")));
 		var roots = DuplicateFinder.GetDefaultRoots();
@@ -320,53 +323,18 @@ public sealed class CleanupApp
 		{
 			groupNumber++;
 			AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(_text.Format("duplicates_group", groupNumber, FormatBytes(group.Size), group.Files.Count))}[/]");
-			if (dryRun)
-			{
-				AnsiConsole.WriteLine($"  {_text.Format("duplicates_keep", group.Files[0])}");
-			}
-
-			var pathsToDisplay = dryRun ? group.Files.Skip(1) : group.Files;
-			foreach (var duplicate in pathsToDisplay)
+			foreach (var duplicate in group.Files)
 			{
 				AnsiConsole.WriteLine($"  {duplicate}");
 			}
-
-			if (dryRun)
-			{
-				continue;
-			}
-
-			var keep = AnsiConsole.Prompt(
-				new SelectionPrompt<DuplicateChoice>()
-					.Title(_text.Get("duplicates_select_keep"))
-					.PageSize(10)
-					.AddChoices(group.Files.Select(path => new DuplicateChoice(path))))
-				.Path;
-			var reviewedGroup = group with
-			{
-				Files = new[] { keep }.Concat(group.Files.Where(path => !string.Equals(path, keep, StringComparison.OrdinalIgnoreCase))).ToArray()
-			};
-			AnsiConsole.WriteLine($"  {_text.Format("duplicates_keep", keep)}");
-
-			if (!AnsiConsole.Confirm(_text.Format("duplicates_delete_confirm", reviewedGroup.Files.Count - 1), defaultValue: false))
-			{
-				WriteWarning(_text.Get("duplicates_skipped"));
-				continue;
-			}
-
-			var result = DuplicateFinder.DeleteDuplicates(reviewedGroup);
-			WriteSuccess(_text.Format("duplicates_deleted", result.DeletedFiles, FormatBytes(result.DeletedBytes)));
-			if (result.FailedFiles > 0)
-			{
-				WriteWarning(_text.Format("cleanup_failed", result.FailedFiles));
-				PrintErrors(result.Errors);
-			}
 		}
+
+		WriteWarning(_text.Get("duplicates_list_only"));
 
 		return 0;
 	}
 
-	private int RunRemnants()
+	private int RunRemnants(bool dryRun)
 	{
 		AnsiConsole.Write(new Panel(new Text(_text.Get("remnants_note")))
 		{
@@ -389,14 +357,51 @@ public sealed class CleanupApp
 		foreach (var candidate in candidates)
 		{
 			table.AddRow(
-				new Text(candidate.Path),
+				CreatePathLink(candidate.Path),
 				new Text(candidate.LastWriteTimeUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")),
 				new Text(FormatBytes(candidate.Bytes)));
 		}
 
 		AnsiConsole.Write(table);
+		if (dryRun)
+		{
+			WriteWarning(_text.Get("dry_run"));
+			return 0;
+		}
+
 		WriteWarning(_text.Get("remnants_manual"));
-		return 0;
+		var selected = AnsiConsole.Prompt(
+			new MultiSelectionPrompt<AppDataCandidate>()
+				.Title(_text.Get("remnants_select"))
+				.PageSize(15)
+				.InstructionsText(_text.Get("cleanup_select_instructions"))
+				.AddChoices(candidates));
+		if (selected.Count == 0)
+		{
+			WriteWarning(_text.Get("cleanup_none_selected"));
+			return 0;
+		}
+
+		var totalBytes = selected.Sum(candidate => candidate.Bytes);
+		if (!AnsiConsole.Confirm(_text.Format("remnants_confirm", selected.Count, FormatBytes(totalBytes)), defaultValue: false))
+		{
+			WriteWarning(_text.Get("cleanup_cancelled"));
+			return 0;
+		}
+
+		var result = StaleAppDataScanner.Delete(selected);
+		WriteSuccess(_text.Format("remnants_deleted", result.DeletedFiles, FormatBytes(result.DeletedBytes)));
+		if (result.SkippedCandidates > 0)
+		{
+			WriteWarning(_text.Format("remnants_skipped", result.SkippedCandidates));
+		}
+		if (result.FailedFiles > 0)
+		{
+			WriteWarning(_text.Format("cleanup_failed", result.FailedFiles));
+			PrintErrors(result.Errors);
+		}
+
+		return result.FailedFiles == 0 ? 0 : 1;
 	}
 
 	private int RunInstallerCandidates(bool dryRun)
@@ -467,6 +472,119 @@ public sealed class CleanupApp
 		return result.FailedFiles == 0 ? 0 : 1;
 	}
 
+	private int RunDataMigration(bool dryRun)
+	{
+		AnsiConsole.Write(new Panel(new Text(_text.Get("migration_note")))
+		{
+			Header = new PanelHeader(_text.Get("migration_title")),
+			Border = BoxBorder.Rounded
+		});
+		AnsiConsole.WriteLine();
+
+		var targets = DataMigrationCatalog.FindAvailable();
+		if (targets.Count == 0)
+		{
+			WriteWarning(_text.Get("migration_none"));
+			return 0;
+		}
+
+		var table = new Table { Border = TableBorder.Rounded };
+		table.AddColumn(_text.Get("migration_columns_category"));
+		table.AddColumn(_text.Get("migration_columns_name"));
+		table.AddColumn(_text.Get("migration_columns_source"));
+		table.AddColumn(_text.Get("migration_columns_plan"));
+		foreach (var target in targets)
+		{
+			table.AddRow(
+				new Text(target.Category.Get(_text.Language)),
+				new Text(target.Name.Get(_text.Language)),
+				CreatePathLink(target.SourcePath),
+				new Text(target.Plan.Get(_text.Language)));
+		}
+		AnsiConsole.Write(table);
+		AnsiConsole.WriteLine();
+
+		if (dryRun)
+		{
+			WriteWarning(_text.Get("dry_run"));
+			return 0;
+		}
+
+		var selectedChoices = AnsiConsole.Prompt(
+			new MultiSelectionPrompt<MigrationChoice>()
+				.Title(_text.Get("migration_select"))
+				.PageSize(15)
+				.InstructionsText(_text.Get("cleanup_select_instructions"))
+				.AddChoices(targets.Select(target => new MigrationChoice(target, _text.Language))));
+		var selected = selectedChoices.Select(choice => choice.Target).ToArray();
+		if (selected.Length == 0)
+		{
+			WriteWarning(_text.Get("cleanup_none_selected"));
+			return 0;
+		}
+
+		var drives = DataMigrationService.GetDestinationDrives();
+		if (drives.Count == 0)
+		{
+			WriteWarning(_text.Get("migration_no_drives"));
+			return 1;
+		}
+
+		var drive = AnsiConsole.Prompt(
+			new SelectionPrompt<MigrationDrive>()
+				.Title(_text.Get("migration_drive_select"))
+				.PageSize(10)
+				.AddChoices(drives));
+		var plan = DataMigrationService.BuildPlan(selected, drive.RootPath);
+		if (plan.Count == 0)
+		{
+			WriteWarning(_text.Get("migration_no_valid_targets"));
+			return 1;
+		}
+
+		PrintMigrationPlan(plan);
+		if (!AnsiConsole.Confirm(_text.Format("migration_confirm", plan.Count, FormatBytes(plan.Sum(item => item.Bytes))), defaultValue: false))
+		{
+			WriteWarning(_text.Get("cleanup_cancelled"));
+			return 0;
+		}
+
+		MigrationExecutionResult result = new(0, 0, 0, Array.Empty<string>());
+		AnsiConsole.Status().Start(_text.Get("migration_running"), _ =>
+		{
+			result = DataMigrationService.Execute(plan, _text.Language);
+		});
+		WriteSuccess(_text.Format("migration_done", result.MigratedTargets, FormatBytes(result.MigratedBytes)));
+		if (result.FailedTargets > 0)
+		{
+			WriteWarning(_text.Format("migration_failed", result.FailedTargets));
+			PrintErrors(result.Errors);
+		}
+
+		return result.FailedTargets == 0 ? 0 : 1;
+	}
+
+	private void PrintMigrationPlan(IReadOnlyList<MigrationPlanItem> plan)
+	{
+		var table = new Table { Border = TableBorder.Rounded };
+		table.AddColumn(_text.Get("migration_columns_name"));
+		table.AddColumn(_text.Get("migration_columns_source"));
+		table.AddColumn(_text.Get("migration_columns_destination"));
+		table.AddColumn(_text.Get("migration_columns_config"));
+		table.AddColumn(_text.Get("migration_columns_size"));
+		foreach (var item in plan)
+		{
+			table.AddRow(
+				new Text(item.Target.Name.Get(_text.Language)),
+				CreatePathLink(item.SourcePath),
+				CreatePathLink(item.DestinationPath),
+				new Text(item.Target.ConfigurationPlan.Get(_text.Language)),
+				new Text(FormatBytes(item.Bytes)));
+		}
+		AnsiConsole.Write(table);
+		WriteWarning(_text.Get("migration_plan_warning"));
+	}
+
 	private void PrintCleanupPlan(IReadOnlyList<CleanupTarget> targets)
 	{
 		AnsiConsole.Write(new Rule(_text.Get("cleanup_plan")));
@@ -516,17 +634,6 @@ public sealed class CleanupApp
 			Border = BoxBorder.Rounded
 		});
 		AnsiConsole.WriteLine();
-	}
-
-	private void ShowHelp()
-	{
-		AnsiConsole.Write(new Panel(new Text(_text.Get("help_body")))
-		{
-			Header = new PanelHeader(_text.Get("help_title")),
-			Border = BoxBorder.Rounded
-		});
-		AnsiConsole.WriteLine();
-		CliOptionsParser.WriteUsage(_text);
 	}
 
 	private void PrintErrors(IEnumerable<string> errors)
@@ -585,6 +692,20 @@ public sealed class CleanupApp
 		return $"{scaled:0.##} {units[unit]}";
 	}
 
+	private static IRenderable CreatePathLink(string path)
+	{
+		var display = Markup.Escape(path);
+		try
+		{
+			var uri = new Uri(Path.GetFullPath(path), UriKind.Absolute).AbsoluteUri;
+			return new Markup($"[link={Markup.Escape(uri)}]{display}[/]");
+		}
+		catch (Exception exception) when (exception is ArgumentException or IOException or NotSupportedException or UriFormatException)
+		{
+			return new Text(path);
+		}
+	}
+
 	private string GetRiskLabel(CleanupRisk risk)
 		=> risk == CleanupRisk.Moderate ? _text.Get("cleanup_risk_moderate") : _text.Get("cleanup_risk_safe");
 
@@ -593,14 +714,15 @@ public sealed class CleanupApp
 		public override string ToString() => Markup.Escape(Label);
 	}
 
-	private sealed record DuplicateChoice(string Path)
-	{
-		public override string ToString() => Markup.Escape(Path);
-	}
-
 	private sealed record CleanupChoice(CleanupTarget Target, AppLanguage Language)
 	{
 		public override string ToString()
 			=> Markup.Escape($"{Target.Name.Get(Language)} ({(Target.Risk == CleanupRisk.Moderate ? (Language == AppLanguage.Chinese ? "需确认" : "review") : (Language == AppLanguage.Chinese ? "安全" : "safe"))}; {FormatBytes(Target.Snapshot.Bytes)}, {Target.Snapshot.FileCount} {(Language == AppLanguage.Chinese ? "个文件" : "files")})");
+	}
+
+	private sealed record MigrationChoice(MigrationTarget Target, AppLanguage Language)
+	{
+		public override string ToString()
+			=> Markup.Escape($"{Target.Name.Get(Language)} - {Target.SourcePath}");
 	}
 }

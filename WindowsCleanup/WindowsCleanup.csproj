@@ -11,7 +11,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>winclean</ToolCommandName>
     <PackageId>winclean</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>Ater_NilTor</Authors>
     <Description>Safe Windows 10/11 cleanup command-line tool with bilingual Spectre.Console UI.</Description>
     <PackageTags>windows;cleanup;disk;cache;privacy;system-tool</PackageTags>

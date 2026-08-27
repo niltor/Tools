@@ -16,7 +16,6 @@ public sealed record InstallerCandidate(
 
 public static class InstallerCandidateScanner
 {
-	private const int MinimumAgeDays = 30;
 	private const long MinimumBytes = 20L * 1024 * 1024;
 
 	private static readonly string[] InstallerExtensions =
@@ -71,7 +70,6 @@ public static class InstallerCandidateScanner
 
 		var candidates = new List<InstallerCandidate>();
 		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		var cutoff = DateTime.UtcNow.AddDays(-MinimumAgeDays);
 
 		foreach (var root in GetRoots())
 		{
@@ -89,11 +87,6 @@ public static class InstallerCandidateScanner
 					lastWriteTimeUtc = File.GetLastWriteTimeUtc(entry.Path);
 				}
 				catch (Exception exception) when (IsFileSystemException(exception))
-				{
-					continue;
-				}
-
-				if (lastWriteTimeUtc > cutoff)
 				{
 					continue;
 				}
@@ -116,7 +109,6 @@ public static class InstallerCandidateScanner
 		var failedFiles = 0;
 		var errors = new List<string>();
 		var roots = GetRoots().ToArray();
-		var cutoff = DateTime.UtcNow.AddDays(-MinimumAgeDays);
 
 		foreach (var candidate in candidates)
 		{
@@ -135,11 +127,6 @@ public static class InstallerCandidateScanner
 				}
 
 				if (!SafeFileSystem.TryGetLength(candidate.Path, out var length) || length < MinimumBytes)
-				{
-					continue;
-				}
-
-				if (File.GetLastWriteTimeUtc(candidate.Path) > cutoff)
 				{
 					continue;
 				}
@@ -171,17 +158,16 @@ public static class InstallerCandidateScanner
 		var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
 		var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
 
-		// User Downloads is intentionally excluded. It is a user-owned document area,
-		// not an application-maintained update cache. Users can still review it in
-		// Explorer or opt into Storage Sense separately.
-		AddRoot(roots, Combine(local, "Google", "Update", "Download"), new("Google 更新下载目录", "Google updater download staging"));
-		AddRoot(roots, Combine(programData, "Google", "Update", "Download"), new("Google 更新下载目录", "Google updater download staging"));
-		AddRoot(roots, Combine(programFiles, "Google", "Update", "Download"), new("Google 更新下载目录", "Google updater download staging"));
-		AddRoot(roots, Combine(programFilesX86, "Google", "Update", "Download"), new("Google 更新下载目录", "Google updater download staging"));
-		AddRoot(roots, Combine(local, "Microsoft", "EdgeUpdate", "Download"), new("Edge 更新下载目录", "Edge updater download staging"));
-		AddRoot(roots, Combine(programData, "Microsoft", "EdgeUpdate", "Download"), new("Edge 更新下载目录", "Edge updater download staging"));
-		AddRoot(roots, Combine(programFiles, "Microsoft", "EdgeUpdate", "Download"), new("Edge 更新下载目录", "Edge updater download staging"));
-		AddRoot(roots, Combine(programFilesX86, "Microsoft", "EdgeUpdate", "Download"), new("Edge 更新下载目录", "Edge updater download staging"));
+		// User-owned document roots are intentionally excluded. They are not
+		// application-maintained update caches and remain outside this review scan.
+		AddRoot(roots, Combine(local, "Google", "Update", "Download"), new("Google 更新暂存目录", "Google updater staging"));
+		AddRoot(roots, Combine(programData, "Google", "Update", "Download"), new("Google 更新暂存目录", "Google updater staging"));
+		AddRoot(roots, Combine(programFiles, "Google", "Update", "Download"), new("Google 更新暂存目录", "Google updater staging"));
+		AddRoot(roots, Combine(programFilesX86, "Google", "Update", "Download"), new("Google 更新暂存目录", "Google updater staging"));
+		AddRoot(roots, Combine(local, "Microsoft", "EdgeUpdate", "Download"), new("Edge 更新暂存目录", "Edge updater staging"));
+		AddRoot(roots, Combine(programData, "Microsoft", "EdgeUpdate", "Download"), new("Edge 更新暂存目录", "Edge updater staging"));
+		AddRoot(roots, Combine(programFiles, "Microsoft", "EdgeUpdate", "Download"), new("Edge 更新暂存目录", "Edge updater staging"));
+		AddRoot(roots, Combine(programFilesX86, "Microsoft", "EdgeUpdate", "Download"), new("Edge 更新暂存目录", "Edge updater staging"));
 
 		AddRoot(roots, Combine(local, "SquirrelTemp"), new("Squirrel 应用更新暂存目录", "Squirrel application update staging"));
 		AddRoot(roots, Combine(local, "Microsoft", "Visual Studio Code", "Update"), new("VS Code 更新暂存目录", "VS Code update staging"));
@@ -202,12 +188,12 @@ public static class InstallerCandidateScanner
 			AddRoot(roots, Combine(systemRoot, "NVIDIA"), new("NVIDIA 安装包目录", "NVIDIA installer staging"));
 		}
 
-		AddRoot(roots, Combine(programData, "NVIDIA Corporation", "Downloader"), new("NVIDIA 下载目录", "NVIDIA download staging"));
+		AddRoot(roots, Combine(programData, "NVIDIA Corporation", "Downloader"), new("NVIDIA 更新暂存目录", "NVIDIA updater staging"));
 		AddRoot(roots, Combine(programData, "NVIDIA Corporation", "GeForce Experience", "Update"), new("NVIDIA GeForce 更新目录", "NVIDIA GeForce update staging"));
 		AddRoot(roots, Combine(programData, "NVIDIA Corporation", "NVIDIA App", "UpdateFramework", "ota-artifacts"), new("NVIDIA App 更新包目录", "NVIDIA App update payloads"));
 		AddRoot(roots, Combine(programData, "NVIDIA Corporation", "NvApp-UpdateFramework", "ota-artifacts"), new("NVIDIA App 更新包目录", "NVIDIA App update payloads"));
-		AddRoot(roots, Combine(programData, "NVIDIA", "NvBackend", "Updatus", "DownloadManager"), new("NVIDIA 更新下载目录", "NVIDIA update download staging"));
-		AddRoot(roots, Combine(programData, "NVIDIA", "Updatus", "DownloadManager"), new("NVIDIA 更新下载目录", "NVIDIA update download staging"));
+		AddRoot(roots, Combine(programData, "NVIDIA", "NvBackend", "Updatus", "DownloadManager"), new("NVIDIA 更新暂存目录", "NVIDIA updater staging"));
+		AddRoot(roots, Combine(programData, "NVIDIA", "Updatus", "DownloadManager"), new("NVIDIA 更新暂存目录", "NVIDIA updater staging"));
 		AddRoot(roots, Combine(programFiles, "NVIDIA Corporation", "Installer2"), new("NVIDIA 驱动安装缓存（需确认）", "NVIDIA driver installer cache (review)"));
 		AddRoot(roots, Combine(programFilesX86, "NVIDIA Corporation", "Installer2"), new("NVIDIA 驱动安装缓存（需确认）", "NVIDIA driver installer cache (review)"));
 

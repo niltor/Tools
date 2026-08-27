@@ -4,8 +4,6 @@ namespace WindowsCleanup.Cleanup;
 
 public sealed record DuplicateGroup(long Size, IReadOnlyList<string> Files);
 
-public sealed record DuplicateDeleteResult(int DeletedFiles, long DeletedBytes, int FailedFiles, IReadOnlyList<string> Errors);
-
 public sealed class DuplicateFinder
 {
 	private const long MinimumCandidateSize = 4 * 1024;
@@ -104,40 +102,6 @@ public sealed class DuplicateFinder
 			.ToArray();
 	}
 
-	public static DuplicateDeleteResult DeleteDuplicates(DuplicateGroup group)
-	{
-		var deletedFiles = 0;
-		long deletedBytes = 0;
-		var failedFiles = 0;
-		var errors = new List<string>();
-
-		foreach (var path in group.Files.Skip(1))
-		{
-			try
-			{
-				if (SafeFileSystem.IsReparsePoint(path) || !File.Exists(path))
-				{
-					continue;
-				}
-
-				var length = new FileInfo(path).Length;
-				File.Delete(path);
-				deletedFiles++;
-				deletedBytes += length;
-			}
-			catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-			{
-				failedFiles++;
-				if (errors.Count < 5)
-				{
-					errors.Add($"{path}: {exception.Message}");
-				}
-			}
-		}
-
-		return new DuplicateDeleteResult(deletedFiles, deletedBytes, failedFiles, errors);
-	}
-
 	private static async Task<string?> TryHashAsync(string path, CancellationToken cancellationToken)
 	{
 		try
@@ -158,20 +122,4 @@ public sealed class DuplicateFinder
 		}
 	}
 
-	private static string? Combine(string? root, string part)
-	{
-		if (string.IsNullOrWhiteSpace(root))
-		{
-			return null;
-		}
-
-		try
-		{
-			return Path.Combine(root, part);
-		}
-		catch (ArgumentException)
-		{
-			return null;
-		}
-	}
 }
