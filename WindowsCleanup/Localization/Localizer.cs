@@ -35,10 +35,13 @@ public sealed class Localizer
 			["menu_remnants"] = new("审核并清理卸载应用残留（可多选）", "Review and clean uninstalled-app residue (multi-select)"),
 			["menu_packages"] = new("审核旧安装包/升级包（逐项确认）", "Review old installers/updates (confirm per item)"),
 			["menu_migration"] = new("C 盘数据迁移（用户目录、开发包和支持的软件）", "Migrate C: data (user folders, developer caches, supported apps)"),
+			["menu_large_files"] = new("C 盘大文件分析（超过 100 MB，可多选删除）", "Analyze large C: files (>100 MB, multi-select deletion)"),
 			["menu_exit"] = new("退出", "Exit"),
 			["not_windows"] = new("此工具只支持 Windows 10/11。", "This tool supports Windows 10/11 only."),
 			["scanning"] = new("正在扫描安全清理项目...", "Scanning safe cleanup items..."),
 			["scan_complete"] = new("扫描完成。", "Scan complete."),
+			["scan_cancel_hint"] = new("（按 ESC 取消扫描并返回菜单）", "(press ESC to cancel the scan and return to the menu)"),
+			["scan_cancelled"] = new("已取消扫描，返回上级菜单，未执行任何操作。", "Scan cancelled; returned to the previous menu without taking action."),
 			["cleanup_plan"] = new("可清理项目", "Cleanup items found"),
 			["cleanup_empty"] = new("没有发现可清理的安全项目。", "No safe cleanup items were found."),
 			["cleanup_columns_category"] = new("类别", "Category"),
@@ -53,7 +56,7 @@ public sealed class Localizer
 			["cleanup_risk_moderate"] = new("需确认", "Review"),
 			["cleanup_note_safe"] = new("可重新生成", "Regenerable"),
 			["cleanup_select"] = new("选择要清理的项目", "Select items to clean"),
-			["cleanup_select_instructions"] = new("使用空格选择；选择“取消”可返回上级菜单，回车确认。", "Press space to select; choose “Cancel” to return to the previous menu, then press enter."),
+			["cleanup_select_instructions"] = new("使用方向键移动，空格选择；按回车确认，按 ESC 返回上级菜单。", "Use the arrow keys to move and space to select; press Enter to confirm or ESC to return."),
 			["cleanup_none_selected"] = new("没有选择项目，已取消。", "No items selected; cancelled."),
 			["selection_cancelled"] = new("已取消，返回上级菜单，未执行任何操作。", "Cancelled; returned to the previous menu without taking action."),
 			["cleanup_all_skipped_opt_in"] = new("--all 已跳过需要额外判断或可能重新下载的项目；如需处理，请使用交互式 --clean 手动选择。", "--all skipped items requiring extra review or possible re-downloads; use interactive --clean to select them manually."),
@@ -117,6 +120,23 @@ public sealed class Localizer
 			["packages_select"] = new("选择要删除的安装包（逐项审核）", "Select installer files to delete (review each item)"),
 			["packages_confirm"] = new("确定删除选中的 {0} 个安装包/升级包（约 {1}）吗？删除后无法通过本工具恢复。", "Delete the selected {0} installer/update file(s) (about {1})? This tool cannot restore them."),
 			["packages_deleted"] = new("已删除 {0} 个安装包/升级包，释放约 {1}。", "Deleted {0} installer/update file(s), freeing about {1}."),
+			["large_files_title"] = new("C 盘大文件分析", "C: large-file analysis"),
+			["large_files_note"] = new(
+				"扫描系统盘中非 Windows、Program Files、ProgramData、回收站和其他系统目录的文件，只列出超过 100 MB 的文件，最多显示按大小排序最大的 50 条。这里可能包含个人文件；删除是永久操作，不会进入回收站。",
+				"Scans files outside Windows, Program Files, ProgramData, the Recycle Bin, and other system directories on the system drive. Only files larger than 100 MB are listed, with at most the 50 largest shown. Personal files may be included; deletion is permanent and does not use the Recycle Bin."),
+			["large_files_scanning"] = new("正在扫描 C 盘非系统目录中的大文件...", "Scanning large files outside system directories on C:..."),
+			["large_files_scanning_status"] = new("正在扫描：{0}（目录 {1}，文件 {2}，候选 {3}，跳过 {4}）", "Scanning: {0} (directories {1}, files {2}, candidates {3}, skipped {4})"),
+			["large_files_scan_skipped"] = new("有 {0} 个目录或文件因权限、锁定或路径变化被跳过，结果可能不完整。", "{0} directories or files were skipped because of permissions, locks, or path changes; results may be incomplete."),
+			["large_files_none"] = new("没有找到超过 100 MB 的非系统目录文件。", "No files larger than 100 MB were found outside system directories."),
+			["large_files_columns_path"] = new("文件路径", "File path"),
+			["large_files_columns_size"] = new("大小", "Size"),
+			["large_files_limit"] = new("候选超过显示上限，只显示按大小排序最大的前 {0} 条。", "There are more candidates than the display limit; only the {0} largest are shown."),
+			["large_files_select"] = new("选择要永久删除的大文件（可多选）", "Select large files to permanently delete (multi-select)"),
+			["large_files_risk_warning"] = new("风险提示：这些文件位于非系统目录，可能是个人资料、项目、安装包或下载内容；删除后不会进入回收站，确认前请逐项检查路径。", "Risk warning: these files are outside system directories and may be personal data, projects, installers, or downloads. They will not go to the Recycle Bin; review every path before confirming."),
+			["large_files_confirm"] = new("风险提示：确定永久删除选中的 {0} 个文件（约 {1}）吗？请输入 y/n。", "Risk warning: permanently delete the selected {0} file(s) (about {1})? Enter y/n."),
+			["large_files_deleted"] = new("大文件清理完成：删除 {0} 个文件，释放约 {1}。", "Large-file cleanup complete: deleted {0} file(s), freeing about {1}."),
+			["large_files_delete_skipped"] = new("有 {0} 个文件在确认后发生变化、已不存在或不再符合安全范围，因此跳过。", "{0} file(s) changed, disappeared, or no longer matched the safe scope after confirmation and were skipped."),
+			["large_files_delete_failed"] = new("有 {0} 个大文件无法删除，通常是因为正在使用或权限不足。", "{0} large file(s) could not be deleted, usually because they are in use or permission is missing."),
 			["migration_title"] = new("C 盘数据迁移", "C: data migration"),
 			["migration_note"] = new(
 				"迁移只提供可明确修改配置或环境变量的目录。用户目录使用 Windows 已知文件夹设置；开发工具使用各自的缓存/包目录配置；目标路径取源目录相对于当前用户目录的后缀，例如 C:\\Users\\alice\\Documents 会放到 E:\\Documents；用户目录之外的已确认路径使用隔离回退目录。目前只在检测到微信 FileSavePath、CODEX_HOME、HF_HOME 或 OLLAMA_MODELS 等已确认路径时提供软件数据迁移。QQ、Discord、Slack、Teams、ChatGPT/Claude Desktop、Cursor、Windsurf 等没有确认配置路径的软件不会自动列出。复制成功并完成配置后才会清理原目录，目标盘必须有足够空间；正在运行的相关软件会被跳过。",
@@ -131,21 +151,26 @@ public sealed class Localizer
 			["migration_columns_size"] = new("大小", "Size"),
 			["migration_select"] = new("选择要迁移的目录（可多选）", "Select directories to migrate (multi-select)"),
 			["migration_drive_select"] = new("选择目标盘符（不会使用当前源盘）", "Select a destination drive (the source drive is excluded)"),
+			["migration_scanning"] = new("正在扫描迁移目录大小...", "Scanning migration directory sizes..."),
+			["migration_scanning_path"] = new("正在扫描迁移目录：{0}", "Scanning migration directory: {0}"),
+			["migration_rechecking"] = new("正在重新检查所选目录...", "Rechecking selected directories..."),
+			["migration_rechecking_path"] = new("正在重新检查：{0}", "Rechecking: {0}"),
 			["migration_no_drives"] = new("没有找到可用的其他固定磁盘。请连接目标磁盘后重试。", "No other ready fixed drive was found. Connect a destination drive and try again."),
 			["migration_no_valid_targets"] = new("所选目录没有形成可执行的迁移计划。请检查路径、空间或相关软件是否正在运行。", "The selected directories did not produce an executable migration plan. Check paths, free space, or running applications."),
 			["migration_confirm"] = new("确定迁移 {0} 个目录（约 {1}），并在配置更新成功后清理原目录吗？", "Migrate {0} selected item(s) (about {1}) and clean the source only after configuration succeeds?"),
 			["migration_plan_warning"] = new("迁移会复制数据、修改列出的配置或用户环境变量，并尝试删除原目录中的内容；请先关闭相关软件。环境变量对新启动的终端/程序生效。", "Migration copies data, changes the listed configuration or user environment variable, and then attempts to remove the source contents; close related applications first. Environment-variable changes affect newly started terminals and applications."),
 			["migration_running"] = new("正在迁移选中的目录...", "Migrating selected directories..."),
+			["migration_running_path"] = new("正在处理：{0}", "Processing: {0}"),
 			["migration_done"] = new("迁移完成：处理 {0} 个目录，迁移约 {1}。", "Migration complete: processed {0} item(s), migrating about {1}."),
 			["migration_failed"] = new("有 {0} 个目录迁移失败或未完成。目标目录会保留以便恢复。", "{0} item(s) failed or were incomplete. Destination data is kept for recovery."),
 			["help_body"] = new(
 				"会处理：用户/Windows 临时文件、Windows 更新下载和 Delivery Optimization 缓存、错误报告、缩略图/驱动着色器、常见浏览器和应用缓存、微信/QQ/聊天通讯软件缓存、抖音/B站/视频直播软件缓存、游戏启动器缓存、旧 Windows 诊断日志，以及可选的开发工具和 AI 工具缓存。\n\n" +
 				"旧安装包/升级包只扫描软件自有更新暂存目录和注册表关联的已安装软件路径，逐文件确认；用户个人文件夹不会被默认操作。注册表只清理 HKCU 使用记录，卸载项失效路径只显示候选。\n\n" +
-				"重复文件功能只列表展示，不会删除。卸载应用残留必须人工多选并确认；删除前会再次检查是否仍像已安装应用。C 盘数据迁移单独执行，只提供已确认有配置路径的用户目录、开发工具目录和软件数据。\n\n" +
+				"重复文件功能只列表展示，不会删除。卸载应用残留必须人工多选并确认；删除前会再次检查是否仍像已安装应用。C 盘数据迁移单独执行，只提供已确认有配置路径的用户目录、开发工具目录和软件数据。C 盘大文件分析只列出非系统目录中超过 100 MB 的最大 50 个文件，可多选永久删除，删除前会再次进行 y/n 风险确认。交互选择界面均可按 ESC 返回上级菜单。\n\n" +
 				"不会处理：Windows\\Installer、WinSxS、Windows.old、DriverStore、正在使用的驱动、服务、页面文件、系统还原点、浏览器历史/登录信息、聊天数据库/媒体、视频下载/离线缓存、AI 模型和密钥、系统关键注册表或未知应用数据。",
 				"Handled: user/Windows temporary files, Windows Update and Delivery Optimization caches, error reports, thumbnail/driver shader caches, common browser/app caches, WeChat/QQ/chat caches, Douyin/Bilibili/video/live-app caches, game-launcher caches, old Windows diagnostics, and optional developer/AI tool caches.\n\n" +
 				"Old installers/updates are scanned only in app-owned updater staging folders and paths linked to installed applications, with per-file confirmation; user-owned folders are not touched by default. HKCU usage history can be cleared, while missing uninstall paths are review-only.\n\n" +
-				"Duplicate-file mode is display-only and never deletes. Uninstalled-app residue requires manual multi-selection and confirmation, with a second installed-app safety check before deletion. C: data migration is separate and only offers user folders, developer directories, and app data with a confirmed configuration path.\n\n" +
+				"Duplicate-file mode is display-only and never deletes. Uninstalled-app residue requires manual multi-selection and confirmation, with a second installed-app safety check before deletion. C: data migration is separate and only offers user folders, developer directories, and app data with a confirmed configuration path. C: large-file analysis lists up to the 50 largest files over 100 MB outside system directories and allows multi-select permanent deletion with a second y/n risk confirmation. Press ESC in selection prompts to return to the previous menu.\n\n" +
 				"Never handled: Windows\\Installer, WinSxS, Windows.old, DriverStore, active drivers, services, page files, restore points, browser history/login data, chat databases/media, downloaded/offline video, AI models/credentials, system-critical registry data, or unknown app data."),
 			["usage_header"] = new("命令行用法", "Command-line usage"),
 			["exit_message"] = new("已退出。", "Exited."),

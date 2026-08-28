@@ -45,7 +45,9 @@ internal static class DataMigrationService
 
 	public static IReadOnlyList<MigrationPlanItem> BuildPlan(
 		IReadOnlyList<MigrationTarget> targets,
-		string destinationDriveRoot)
+		string destinationDriveRoot,
+		Action<string>? onProgress = null,
+		CancellationToken cancellationToken = default)
 	{
 		if (!OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(destinationDriveRoot))
 		{
@@ -64,7 +66,8 @@ internal static class DataMigrationService
 		long plannedBytes = 0;
 		foreach (var target in targets.DistinctBy(target => target.Id))
 		{
-			if (!TryGetDirectorySnapshot(target.SourcePath, out var snapshot, out _))
+			cancellationToken.ThrowIfCancellationRequested();
+			if (!TryGetDirectorySnapshot(target.SourcePath, out var snapshot, out _, onProgress, cancellationToken))
 			{
 				continue;
 			}
@@ -104,10 +107,14 @@ internal static class DataMigrationService
 		return plan;
 	}
 
-	internal static bool TryGetDirectorySize(string path, out long bytes)
+	internal static bool TryGetDirectorySize(
+		string path,
+		out long bytes,
+		Action<string>? onProgress = null,
+		CancellationToken cancellationToken = default)
 	{
 		bytes = 0;
-		if (!TryGetDirectorySnapshot(path, out var snapshot, out _))
+		if (!TryGetDirectorySnapshot(path, out var snapshot, out _, onProgress, cancellationToken))
 		{
 			return false;
 		}
@@ -118,7 +125,9 @@ internal static class DataMigrationService
 
 	public static MigrationExecutionResult Execute(
 		IReadOnlyList<MigrationPlanItem> plan,
-		AppLanguage language)
+		AppLanguage language,
+		Action<string>? onProgress = null,
+		CancellationToken cancellationToken = default)
 	{
 		var migratedTargets = 0;
 		long migratedBytes = 0;
@@ -127,6 +136,7 @@ internal static class DataMigrationService
 
 		foreach (var item in plan)
 		{
+			cancellationToken.ThrowIfCancellationRequested();
 			var targetName = item.Target.Name.Get(language);
 			try
 			{
@@ -144,7 +154,7 @@ internal static class DataMigrationService
 					continue;
 				}
 
-				if (!TryGetDirectorySnapshot(item.SourcePath, out var beforeCopy, out var snapshotError) ||
+				if (!TryGetDirectorySnapshot(item.SourcePath, out var beforeCopy, out var snapshotError, onProgress, cancellationToken) ||
 					beforeCopy.Bytes != item.Bytes || beforeCopy.FileCount != item.FileCount)
 				{
 					failedTargets++;
@@ -168,7 +178,7 @@ internal static class DataMigrationService
 					continue;
 				}
 
-				if (!TryGetDirectorySnapshot(item.SourcePath, out var afterCopy, out var afterCopyError) ||
+				if (!TryGetDirectorySnapshot(item.SourcePath, out var afterCopy, out var afterCopyError, onProgress, cancellationToken) ||
 					afterCopy.Bytes != item.Bytes || afterCopy.FileCount != item.FileCount)
 				{
 					failedTargets++;
@@ -517,7 +527,9 @@ internal static class DataMigrationService
 	private static bool TryGetDirectorySnapshot(
 		string path,
 		out MigrationDirectorySnapshot snapshot,
-		out string? error)
+		out string? error,
+		Action<string>? onProgress = null,
+		CancellationToken cancellationToken = default)
 	{
 		snapshot = new MigrationDirectorySnapshot(0, 0);
 		error = null;
@@ -535,9 +547,12 @@ internal static class DataMigrationService
 			pending.Push(path);
 			while (pending.Count > 0)
 			{
+				cancellationToken.ThrowIfCancellationRequested();
 				var current = pending.Pop();
+				onProgress?.Invoke(current);
 				foreach (var entry in Directory.EnumerateFileSystemEntries(current))
 				{
+					cancellationToken.ThrowIfCancellationRequested();
 					if (SafeFileSystem.IsReparsePoint(entry))
 					{
 						error = $"reparse point found: {entry}";

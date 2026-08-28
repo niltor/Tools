@@ -8,8 +8,11 @@ internal static class SafeFileSystem
 {
 	private static readonly Lazy<IReadOnlyList<string>> ProtectedRoots = new(BuildProtectedRoots);
 
-	public static IEnumerable<SafeFileEntry> EnumerateFiles(CleanupLocation location)
+	public static IEnumerable<SafeFileEntry> EnumerateFiles(
+		CleanupLocation location,
+		CancellationToken cancellationToken = default)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
 		if (location.Kind == CleanupLocationKind.RecycleBin)
 		{
 			yield break;
@@ -57,6 +60,7 @@ internal static class SafeFileSystem
 
 		while (pending.Count > 0)
 		{
+			cancellationToken.ThrowIfCancellationRequested();
 			var current = pending.Pop();
 			IEnumerable<string> entries;
 			try
@@ -70,6 +74,7 @@ internal static class SafeFileSystem
 
 			foreach (var entry in entries)
 			{
+				cancellationToken.ThrowIfCancellationRequested();
 				if (IsProtectedPath(entry) || IsReparsePoint(entry))
 				{
 					continue;

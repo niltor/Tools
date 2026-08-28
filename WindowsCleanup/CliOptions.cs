@@ -13,7 +13,8 @@ public enum CliCommand
 	Duplicates,
 	Remnants,
 	Packages,
-	Migration
+	Migration,
+	LargeFiles
 }
 
 public sealed record CliOptions(
@@ -124,6 +125,16 @@ public static class CliOptionsParser
 
 					break;
 
+				case "--large-files":
+				case "--large-file-analysis":
+					if (!TrySetCommand(CliCommand.LargeFiles, ref command, ref error))
+					{
+						options = default!;
+						return false;
+					}
+
+					break;
+
 				case "--dry-run":
 					dryRun = true;
 					break;
@@ -160,6 +171,7 @@ public static class CliOptionsParser
 		AnsiConsole.WriteLine("  --remnants           " + (text.Language == AppLanguage.Chinese ? "审核并可多选清理卸载应用残留" : "Review and multi-select uninstalled-app residue cleanup"));
 		AnsiConsole.WriteLine("  --packages           " + (text.Language == AppLanguage.Chinese ? "审核旧安装包/升级包候选" : "Review old installer/update package candidates"));
 		AnsiConsole.WriteLine("  --migration          " + (text.Language == AppLanguage.Chinese ? "迁移 C 盘用户、开发工具和支持的软件数据" : "Migrate C: user, developer, and supported app data"));
+		AnsiConsole.WriteLine("  --large-files        " + (text.Language == AppLanguage.Chinese ? "分析 C 盘非系统目录中的大文件并可多选删除" : "Analyze large files outside system directories on C: and optionally delete selected files"));
 		AnsiConsole.WriteLine("  --dry-run            " + (text.Language == AppLanguage.Chinese ? "预览，不执行删除/修改" : "Preview without deleting or modifying"));
 		AnsiConsole.WriteLine("  -h, --help           " + (text.Language == AppLanguage.Chinese ? "显示帮助" : "Show help"));
 		AnsiConsole.WriteLine();

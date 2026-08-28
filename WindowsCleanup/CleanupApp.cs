@@ -46,6 +46,7 @@ public sealed class CleanupApp
 			CliCommand.Remnants => RunRemnants(options.DryRun),
 			CliCommand.Packages => RunInstallerCandidates(options.DryRun),
 			CliCommand.Migration => RunDataMigration(options.DryRun),
+			CliCommand.LargeFiles => RunLargeFileAnalysis(options.DryRun),
 			_ => 0
 		};
 	}
@@ -63,6 +64,7 @@ public sealed class CleanupApp
 				new MenuEntry("remnants", _text.Get("menu_remnants")),
 				new MenuEntry("packages", _text.Get("menu_packages")),
 				new MenuEntry("migration", _text.Get("menu_migration")),
+				new MenuEntry("large-files", _text.Get("menu_large_files")),
 				new MenuEntry("exit", _text.Get("menu_exit"))
 			};
 
@@ -70,7 +72,8 @@ public sealed class CleanupApp
 				new SelectionPrompt<MenuEntry>()
 					.Title(_text.Get("menu_title"))
 					.PageSize(10)
-					.AddChoices(choices));
+					.AddChoices(choices)
+					.AddCancelResult(choices.Single(choice => choice.Id == "exit")));
 
 			switch (selected.Id)
 			{
@@ -92,6 +95,9 @@ public sealed class CleanupApp
 				case "migration":
 					RunDataMigration(dryRun: false);
 					break;
+				case "large-files":
+					RunLargeFileAnalysis(dryRun: false);
+					break;
 				case "exit":
 					WriteSuccess(_text.Get("exit_message"));
 					return 0;
@@ -105,13 +111,23 @@ public sealed class CleanupApp
 	{
 		var targets = CleanupCatalog.Build();
 		IReadOnlyList<CleanupTarget> available = Array.Empty<CleanupTarget>();
-		AnsiConsole.Status().Start(_text.Get("scanning"), status =>
+		try
 		{
-			available = CleanupScanner.ScanTargets(
-				targets,
-				CancellationToken.None,
-				target => status.Status($"{_text.Get("scanning")} {target.Name.Get(_text.Language)}"));
-		});
+			using var cancellation = new CancellationTokenSource();
+			using var escListener = new EscapeCancellationListener(cancellation);
+			AnsiConsole.Status().Start(ScanStatus("scanning"), status =>
+			{
+				available = CleanupScanner.ScanTargets(
+					targets,
+					cancellation.Token,
+					target => status.Status(WithScanCancelHint($"{_text.Get("scanning")} {target.Name.Get(_text.Language)}")));
+			});
+		}
+		catch (OperationCanceledException)
+		{
+			WriteWarning(_text.Get("scan_cancelled"));
+			return 0;
+		}
 
 		AnsiConsole.MarkupLine($"[green]{Markup.Escape(_text.Get("scan_complete"))}[/]");
 		PrintCleanupPlan(available);
@@ -150,14 +166,14 @@ public sealed class CleanupApp
 		{
 			var choices = available
 				.Select(target => new CleanupSelection(target, _text.Language))
-				.Prepend(CleanupSelection.Cancel(_text.Language))
 				.ToArray();
 			var selectedChoices = AnsiConsole.Prompt(
 				new MultiSelectionPrompt<CleanupSelection>()
 					.Title(_text.Get("cleanup_select"))
 					.PageSize(15)
 					.InstructionsText(_text.Get("cleanup_select_instructions"))
-					.AddChoices(choices));
+					.AddChoices(choices)
+					.AddCancelResult(CleanupSelection.Cancel(_text.Language)));
 			if (selectedChoices.Any(choice => choice.IsCancel))
 			{
 				WriteWarning(_text.Get("selection_cancelled"));
@@ -313,9 +329,20 @@ public sealed class CleanupApp
 		}
 
 		AnsiConsole.WriteLine();
-		WriteWarning(_text.Get("duplicates_scanning"));
+		WriteWarning(ScanStatus("duplicates_scanning"));
 		var finder = new DuplicateFinder();
-		var groups = await finder.FindAsync(roots).ConfigureAwait(false);
+		IReadOnlyList<DuplicateGroup> groups;
+		try
+		{
+			using var cancellation = new CancellationTokenSource();
+			using var escListener = new EscapeCancellationListener(cancellation);
+			groups = await finder.FindAsync(roots, cancellation.Token).ConfigureAwait(false);
+		}
+		catch (OperationCanceledException)
+		{
+			WriteWarning(_text.Get("scan_cancelled"));
+			return 0;
+		}
 		if (groups.Count == 0)
 		{
 			WriteSuccess(_text.Get("duplicates_none"));
@@ -384,14 +411,14 @@ public sealed class CleanupApp
 		WriteWarning(_text.Get("remnants_manual"));
 		var choices = candidates
 			.Select(candidate => new RemnantSelection(candidate, _text.Language))
-			.Prepend(RemnantSelection.Cancel(_text.Language))
 			.ToArray();
 		var selectedChoices = AnsiConsole.Prompt(
 			new MultiSelectionPrompt<RemnantSelection>()
 				.Title(_text.Get("remnants_select"))
 				.PageSize(15)
 				.InstructionsText(_text.Get("cleanup_select_instructions"))
-				.AddChoices(choices));
+				.AddChoices(choices)
+				.AddCancelResult(RemnantSelection.Cancel(_text.Language)));
 		if (selectedChoices.Any(choice => choice.IsCancel))
 		{
 			WriteWarning(_text.Get("selection_cancelled"));
@@ -469,14 +496,14 @@ public sealed class CleanupApp
 
 		var choices = candidates
 			.Select(candidate => new InstallerSelection(candidate, _text.Language))
-			.Prepend(InstallerSelection.Cancel(_text.Language))
 			.ToArray();
 		var selectedChoices = AnsiConsole.Prompt(
 			new MultiSelectionPrompt<InstallerSelection>()
 				.Title(_text.Get("packages_select"))
 				.PageSize(15)
 				.InstructionsText(_text.Get("cleanup_select_instructions"))
-				.AddChoices(choices));
+				.AddChoices(choices)
+				.AddCancelResult(InstallerSelection.Cancel(_text.Language)));
 		if (selectedChoices.Any(choice => choice.IsCancel))
 		{
 			WriteWarning(_text.Get("selection_cancelled"));
@@ -521,7 +548,23 @@ public sealed class CleanupApp
 		});
 		AnsiConsole.WriteLine();
 
-		var targets = DataMigrationCatalog.FindAvailable();
+		IReadOnlyList<MigrationTarget> targets = Array.Empty<MigrationTarget>();
+		try
+		{
+			using var cancellation = new CancellationTokenSource();
+			using var escListener = new EscapeCancellationListener(cancellation);
+			AnsiConsole.Status().Start(ScanStatus("migration_scanning"), status =>
+			{
+				targets = DataMigrationCatalog.FindAvailable(
+					path => status.Status(WithScanCancelHint(_text.Format("migration_scanning_path", Markup.Escape(path)))),
+					cancellation.Token);
+			});
+		}
+		catch (OperationCanceledException)
+		{
+			WriteWarning(_text.Get("scan_cancelled"));
+			return 0;
+		}
 		if (targets.Count == 0)
 		{
 			WriteWarning(_text.Get("migration_none"));
@@ -558,8 +601,8 @@ public sealed class CleanupApp
 				.PageSize(15)
 				.InstructionsText(_text.Get("cleanup_select_instructions"))
 				.AddChoices(targets
-					.Select(target => new MigrationChoice(target, _text.Language))
-					.Prepend(MigrationChoice.Cancel(_text.Language))));
+					.Select(target => new MigrationChoice(target, _text.Language)))
+				.AddCancelResult(MigrationChoice.Cancel(_text.Language)));
 		if (selectedChoices.Any(choice => choice.IsCancel))
 		{
 			WriteWarning(_text.Get("selection_cancelled"));
@@ -588,8 +631,8 @@ public sealed class CleanupApp
 				.Title(_text.Get("migration_drive_select"))
 				.PageSize(10)
 				.AddChoices(drives
-					.Select(drive => new MigrationDriveChoice(drive, _text.Language))
-					.Append(MigrationDriveChoice.Cancel(_text.Language))));
+					.Select(drive => new MigrationDriveChoice(drive, _text.Language)))
+				.AddCancelResult(MigrationDriveChoice.Cancel(_text.Language)));
 		if (driveChoice.IsCancel)
 		{
 			WriteWarning(_text.Get("selection_cancelled"));
@@ -597,7 +640,25 @@ public sealed class CleanupApp
 		}
 
 		var drive = driveChoice.Drive!;
-		var plan = DataMigrationService.BuildPlan(selected, drive.RootPath);
+		IReadOnlyList<MigrationPlanItem> plan = Array.Empty<MigrationPlanItem>();
+		try
+		{
+			using var cancellation = new CancellationTokenSource();
+			using var escListener = new EscapeCancellationListener(cancellation);
+			AnsiConsole.Status().Start(ScanStatus("migration_rechecking"), status =>
+			{
+				plan = DataMigrationService.BuildPlan(
+					selected,
+					drive.RootPath,
+					path => status.Status(WithScanCancelHint(_text.Format("migration_rechecking_path", Markup.Escape(path)))),
+					cancellation.Token);
+			});
+		}
+		catch (OperationCanceledException)
+		{
+			WriteWarning(_text.Get("scan_cancelled"));
+			return 0;
+		}
 		if (plan.Count == 0)
 		{
 			WriteWarning(_text.Get("migration_no_valid_targets"));
@@ -612,9 +673,12 @@ public sealed class CleanupApp
 		}
 
 		MigrationExecutionResult result = new(0, 0, 0, Array.Empty<string>());
-		AnsiConsole.Status().Start(_text.Get("migration_running"), _ =>
+		AnsiConsole.Status().Start(_text.Get("migration_running"), status =>
 		{
-			result = DataMigrationService.Execute(plan, _text.Language);
+			result = DataMigrationService.Execute(
+				plan,
+				_text.Language,
+				path => status.Status(_text.Format("migration_running_path", Markup.Escape(path))));
 		});
 		WriteSuccess(_text.Format("migration_done", result.MigratedTargets, FormatBytes(result.MigratedBytes)));
 		if (result.FailedTargets > 0)
@@ -624,6 +688,124 @@ public sealed class CleanupApp
 		}
 
 		return result.FailedTargets == 0 ? 0 : 1;
+	}
+
+	private int RunLargeFileAnalysis(bool dryRun)
+	{
+		AnsiConsole.Write(new Panel(new Text(_text.Get("large_files_note")))
+		{
+			Header = new PanelHeader(_text.Get("large_files_title")),
+			Border = BoxBorder.Rounded
+		});
+		AnsiConsole.WriteLine();
+
+		IReadOnlyList<LargeFileCandidate> candidates = Array.Empty<LargeFileCandidate>();
+		LargeFileScanProgress? scanProgress = null;
+		try
+		{
+			using var cancellation = new CancellationTokenSource();
+			using var escListener = new EscapeCancellationListener(cancellation);
+			AnsiConsole.Status().Start(ScanStatus("large_files_scanning"), status =>
+			{
+				candidates = LargeFileScanner.Find(progress =>
+				{
+					scanProgress = progress;
+					status.Status(WithScanCancelHint(_text.Format(
+						"large_files_scanning_status",
+						Markup.Escape(progress.CurrentPath),
+						progress.ScannedDirectories,
+						progress.ScannedFiles,
+						progress.CandidateCount,
+						progress.SkippedEntries)));
+				}, cancellation.Token);
+			});
+		}
+		catch (OperationCanceledException)
+		{
+			WriteWarning(_text.Get("scan_cancelled"));
+			return 0;
+		}
+
+		if (scanProgress?.SkippedEntries > 0)
+		{
+			WriteWarning(_text.Format("large_files_scan_skipped", scanProgress.SkippedEntries));
+		}
+
+		if (candidates.Count == 0)
+		{
+			WriteSuccess(_text.Get("large_files_none"));
+			return 0;
+		}
+
+		var table = new Table { Border = TableBorder.Rounded };
+		table.AddColumn(_text.Get("large_files_columns_path"));
+		table.AddColumn(_text.Get("large_files_columns_size"));
+		foreach (var candidate in candidates)
+		{
+			table.AddRow(CreatePathLink(candidate.Path), new Text(FormatBytes(candidate.Bytes)));
+		}
+
+		AnsiConsole.Write(table);
+		if (scanProgress?.CandidateCount > candidates.Count)
+		{
+			WriteWarning(_text.Format("large_files_limit", LargeFileScanner.MaximumDisplayedFiles));
+		}
+
+		if (dryRun)
+		{
+			WriteWarning(_text.Get("dry_run"));
+			return 0;
+		}
+
+		var choices = candidates
+			.Select(candidate => new LargeFileSelection(candidate, _text.Language))
+			.ToArray();
+		var selectedChoices = AnsiConsole.Prompt(
+			new MultiSelectionPrompt<LargeFileSelection>()
+				.Title(_text.Get("large_files_select"))
+				.PageSize(15)
+				.InstructionsText(_text.Get("cleanup_select_instructions"))
+				.AddChoices(choices)
+				.AddCancelResult(LargeFileSelection.Cancel(_text.Language)));
+		if (selectedChoices.Any(choice => choice.IsCancel))
+		{
+			WriteWarning(_text.Get("selection_cancelled"));
+			return 0;
+		}
+
+		var selected = selectedChoices
+			.Where(choice => choice.Candidate is not null)
+			.Select(choice => choice.Candidate!)
+			.ToArray();
+		if (selected.Length == 0)
+		{
+			WriteWarning(_text.Get("cleanup_none_selected"));
+			return 0;
+		}
+
+		var totalBytes = selected.Sum(candidate => candidate.Bytes);
+		WriteWarning(_text.Get("large_files_risk_warning"));
+		if (!AnsiConsole.Confirm(
+			_text.Format("large_files_confirm", selected.Length, FormatBytes(totalBytes)),
+			defaultValue: false))
+		{
+			WriteWarning(_text.Get("cleanup_cancelled"));
+			return 0;
+		}
+
+		var result = LargeFileScanner.Delete(selected);
+		WriteSuccess(_text.Format("large_files_deleted", result.DeletedFiles, FormatBytes(result.DeletedBytes)));
+		if (result.SkippedFiles > 0)
+		{
+			WriteWarning(_text.Format("large_files_delete_skipped", result.SkippedFiles));
+		}
+		if (result.FailedFiles > 0)
+		{
+			WriteWarning(_text.Format("large_files_delete_failed", result.FailedFiles));
+			PrintErrors(result.Errors);
+		}
+
+		return result.FailedFiles == 0 ? 0 : 1;
 	}
 
 	private void PrintMigrationPlan(IReadOnlyList<MigrationPlanItem> plan)
@@ -771,6 +953,76 @@ public sealed class CleanupApp
 	private string GetRiskLabel(CleanupRisk risk)
 		=> risk == CleanupRisk.Moderate ? _text.Get("cleanup_risk_moderate") : _text.Get("cleanup_risk_safe");
 
+	private string ScanStatus(string key)
+		=> WithScanCancelHint(_text.Get(key));
+
+	private string WithScanCancelHint(string message)
+		=> $"{message} {_text.Get("scan_cancel_hint")}";
+
+	private sealed class EscapeCancellationListener : IDisposable
+	{
+		private readonly CancellationTokenSource _cancellation;
+		private readonly CancellationTokenSource _stop = new();
+		private readonly Task _listener;
+
+		public EscapeCancellationListener(CancellationTokenSource cancellation)
+		{
+			_cancellation = cancellation;
+			_listener = Task.Run(ListenAsync);
+		}
+
+		private async Task ListenAsync()
+		{
+			if (System.Console.IsInputRedirected)
+			{
+				return;
+			}
+
+			while (!_stop.IsCancellationRequested && !_cancellation.IsCancellationRequested)
+			{
+				try
+				{
+					if (System.Console.KeyAvailable)
+					{
+						var key = System.Console.ReadKey(intercept: true);
+						if (key.Key == ConsoleKey.Escape)
+						{
+							_cancellation.Cancel();
+							return;
+						}
+					}
+				}
+				catch (Exception exception) when (exception is InvalidOperationException or IOException or NotSupportedException)
+				{
+					return;
+				}
+
+				try
+				{
+					await Task.Delay(50, _stop.Token).ConfigureAwait(false);
+				}
+				catch (OperationCanceledException) when (_stop.IsCancellationRequested)
+				{
+					return;
+				}
+			}
+		}
+
+		public void Dispose()
+		{
+			_stop.Cancel();
+			try
+			{
+				_listener.GetAwaiter().GetResult();
+			}
+			catch (Exception exception) when (exception is InvalidOperationException or IOException or NotSupportedException or ObjectDisposedException)
+			{
+				// Console input can disappear while a scan is finishing.
+			}
+			_stop.Dispose();
+		}
+	}
+
 	private sealed record MenuEntry(string Id, string Label)
 	{
 		public override string ToString() => Markup.Escape(Label);
@@ -838,5 +1090,16 @@ public sealed class CleanupApp
 			=> IsCancel
 				? Markup.Escape(GetCancelLabel(Language))
 				: Markup.Escape(Drive!.RootPath);
+	}
+
+	private sealed record LargeFileSelection(LargeFileCandidate? Candidate, AppLanguage Language, bool IsCancel = false)
+	{
+		public static LargeFileSelection Cancel(AppLanguage language)
+			=> new(null, language, IsCancel: true);
+
+		public override string ToString()
+			=> IsCancel
+				? Markup.Escape(GetCancelLabel(Language))
+				: Markup.Escape($"{Candidate!.Path} ({FormatBytes(Candidate.Bytes)})");
 	}
 }

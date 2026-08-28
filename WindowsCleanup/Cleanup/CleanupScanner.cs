@@ -46,7 +46,7 @@ public static class CleanupScanner
 			}
 			else
 			{
-				foreach (var entry in SafeFileSystem.EnumerateFiles(location))
+				foreach (var entry in SafeFileSystem.EnumerateFiles(location, cancellationToken))
 				{
 					cancellationToken.ThrowIfCancellationRequested();
 					if (!seen.Add(entry.Path))

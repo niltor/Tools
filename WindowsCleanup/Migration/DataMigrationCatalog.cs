@@ -13,7 +13,9 @@ internal static class DataMigrationCatalog
 	private static readonly LocalizedText DeveloperCategory = new("开发工具目录", "Developer tool directories");
 	private static readonly LocalizedText ApplicationCategory = new("软件数据", "Application data");
 
-	public static IReadOnlyList<MigrationTarget> FindAvailable()
+	public static IReadOnlyList<MigrationTarget> FindAvailable(
+		Action<string>? onProgress = null,
+		CancellationToken cancellationToken = default)
 	{
 		if (!OperatingSystem.IsWindows())
 		{
@@ -191,9 +193,22 @@ internal static class DataMigrationCatalog
 			new("设置用户环境变量 OLLAMA_MODELS；重启 Ollama 后生效", "Set user OLLAMA_MODELS; restart Ollama to apply it"),
 			new[] { "ollama" });
 
-		return targets
+		var available = new List<MigrationTarget>();
+		foreach (var target in targets
 			.GroupBy(target => target.SourcePath, StringComparer.OrdinalIgnoreCase)
-			.Select(group => group.First())
+			.Select(group => group.First()))
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			onProgress?.Invoke(target.SourcePath);
+			if (!DataMigrationService.TryGetDirectorySize(target.SourcePath, out var bytes, onProgress, cancellationToken))
+			{
+				continue;
+			}
+
+			available.Add(target with { Bytes = bytes });
+		}
+
+		return available
 			.OrderBy(target => target.Category.Chinese, StringComparer.OrdinalIgnoreCase)
 			.ThenBy(target => target.Name.Chinese, StringComparer.OrdinalIgnoreCase)
 			.ToArray();
@@ -263,13 +278,15 @@ internal static class DataMigrationCatalog
 			return;
 		}
 
-		var fullPath = Path.GetFullPath(target.SourcePath);
-		if (!DataMigrationService.TryGetDirectorySize(fullPath, out var bytes))
+		try
 		{
-			return;
+			var fullPath = Path.GetFullPath(target.SourcePath);
+			targets.Add(target with { SourcePath = fullPath });
 		}
-
-		targets.Add(target with { SourcePath = fullPath, Bytes = bytes });
+		catch (Exception exception) when (IsPathException(exception))
+		{
+			// A path that changes between validation and normalization is omitted.
+		}
 	}
 
 	private static bool IsSafeSource(string path)

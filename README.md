@@ -70,6 +70,7 @@ winclean --duplicates
 winclean --remnants
 winclean --packages
 winclean --migration
+winclean --large-files
 ```
 
-所有删除操作都需要交互确认；`--scan` 和 `--dry-run` 只预览，不删除文件。`--clean --all` 只选择默认安全项目，交互式 `--clean` 可手动选择需确认项目。工具只清理可重新生成的临时文件/缓存、C: 回收站和当前用户的使用记录；安装包与卸载残留均采用人工审核，重复文件只列表展示。`--migration` 会在单独确认后把选中的用户目录、开发工具目录或已确认可配置的软件数据迁移到其他固定盘，并更新对应配置。详见 [`WindowsCleanup/README.md`](WindowsCleanup/README.md)。
+所有删除操作都需要交互确认；`--scan` 和 `--dry-run` 只预览，不删除文件。`--clean --all` 只选择默认安全项目，交互式 `--clean` 可手动选择需确认项目。工具只清理可重新生成的临时文件/缓存、C: 回收站和当前用户的使用记录；安装包与卸载残留均采用人工审核，重复文件只列表展示。`--migration` 会在单独确认后把选中的用户目录、开发工具目录或已确认可配置的软件数据迁移到其他固定盘，并更新对应配置。`--large-files` 会分析非系统目录中超过 100 MB 的文件，最多显示 50 条并支持多选永久删除；删除前会再次进行 y/n 风险确认。选择界面可直接按 ESC 返回。详见 [`WindowsCleanup/README.md`](WindowsCleanup/README.md)。
