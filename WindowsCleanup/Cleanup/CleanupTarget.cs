@@ -15,14 +15,19 @@ public enum CleanupRisk
 	Moderate
 }
 
+public enum DeveloperCacheKind { None, ProjectBuild, Packages, Tools }
+
 public sealed record CleanupLocation(
 	string Path,
 	CleanupLocationKind Kind = CleanupLocationKind.DirectoryContents,
 	string? Pattern = null,
 	bool Recursive = true,
-	int? MinimumAgeDays = null);
+	int? MinimumAgeDays = null,
+	bool NuGetPackageCache = false,
+	string? GitRepository = null,
+	bool RequireGitIgnore = false);
 
-public sealed record CleanupSnapshot(int FileCount, long Bytes, int LocationsWithFiles)
+public sealed record CleanupSnapshot(int FileCount, long Bytes, int LocationsWithFiles, bool IsMeasured = true)
 {
 	public static CleanupSnapshot Empty { get; } = new(0, 0, 0);
 }
@@ -37,7 +42,8 @@ public sealed class CleanupTarget
 		IEnumerable<CleanupLocation> locations,
 		bool requiresAdministrator = false,
 		CleanupRisk risk = CleanupRisk.Safe,
-		bool optIn = false)
+		bool optIn = false,
+		DeveloperCacheKind developerKind = DeveloperCacheKind.None)
 	{
 		Id = id;
 		Category = category;
@@ -45,12 +51,13 @@ public sealed class CleanupTarget
 		Note = note;
 		Locations = locations
 			.Where(location => !string.IsNullOrWhiteSpace(location.Path))
-			.GroupBy(location => $"{location.Kind}|{location.Path}|{location.Pattern}|{location.Recursive}|{location.MinimumAgeDays}", StringComparer.OrdinalIgnoreCase)
+			.GroupBy(location => $"{location.Kind}|{location.Path}|{location.Pattern}|{location.Recursive}|{location.MinimumAgeDays}|{location.NuGetPackageCache}", StringComparer.OrdinalIgnoreCase)
 			.Select(group => group.First())
 			.ToArray();
 		RequiresAdministrator = requiresAdministrator;
 		Risk = risk;
 		OptIn = optIn;
+		DeveloperKind = developerKind;
 	}
 
 	public string Id { get; }
@@ -69,7 +76,10 @@ public sealed class CleanupTarget
 
 	public bool OptIn { get; }
 
+	public DeveloperCacheKind DeveloperKind { get; }
+
 	public CleanupSnapshot Snapshot { get; internal set; } = CleanupSnapshot.Empty;
+	internal IReadOnlyList<string> MeasuredPaths { get; set; } = [];
 }
 
 public sealed record CleanupExecutionResult(

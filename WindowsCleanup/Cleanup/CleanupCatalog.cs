@@ -7,7 +7,6 @@ public static class CleanupCatalog
 	private static readonly LocalizedText DiskCategory = new("C 盘 / 临时文件", "C: / temporary files");
 	private static readonly LocalizedText CacheCategory = new("缓存", "Cache");
 	private static readonly LocalizedText PrivacyCategory = new("使用痕迹", "Usage traces");
-	private static readonly LocalizedText DeveloperCategory = new("开发工具缓存", "Developer caches");
 	private static readonly LocalizedText AiCategory = new("AI 工具缓存", "AI tool caches");
 	private static readonly LocalizedText MediaCategory = new("视频/直播软件", "Video/live apps");
 	private static readonly LocalizedText Regenerable = new("可重新生成，安全删除", "Regenerable and safe to delete");
@@ -151,8 +150,6 @@ public static class CleanupCatalog
 			"Code Cache",
 			"GPUCache",
 			"Media Cache",
-			"Application Cache",
-			Path.Combine("Service Worker", "CacheStorage"),
 			"GraphiteDawnCache",
 			"GrShaderCache",
 			"ShaderCache",
@@ -218,6 +215,19 @@ public static class CleanupCatalog
 			new("Yandex 浏览器缓存", "Yandex Browser cache"),
 			Regenerable, yandexLocations);
 
+		var chromiumRoots = new[] { chromeRoot, edgeRoot, braveRoot, vivaldiRoot,
+			Combine(local, "Yandex", "YandexBrowser", "User Data") };
+		Add(targets, "browser-root-shaders", CacheCategory,
+			new("浏览器公共着色器缓存", "Browser shared shader caches"), Regenerable,
+			chromiumRoots.SelectMany(root => DirectCacheLocations(root, "ShaderCache", "GrShaderCache", "GraphiteDawnCache")));
+		Add(targets, "browser-offline-cache", CacheCategory,
+			new("浏览器离线网页缓存", "Browser offline web caches"),
+			new("可能影响离线网页使用；仅在确认不再需要离线内容时选择。", "May affect offline websites; select only if offline content is no longer needed."),
+			chromiumRoots.SelectMany(root => ProfileCacheLocations(root, "Application Cache", Path.Combine("Service Worker", "CacheStorage")))
+				.Concat(new[] { local, roaming }.SelectMany(root => new[] { "Opera Stable", "Opera GX Stable" }
+					.SelectMany(app => DirectCacheLocations(Combine(root, "Opera Software", app), "Application Cache", Path.Combine("Service Worker", "CacheStorage"))))),
+			risk: CleanupRisk.Moderate, optIn: true);
+
 		var packagesRoot = Combine(local, "Packages");
 		var applicationCaches = new List<CleanupLocation>();
 		AddCacheLocations(applicationCaches, local, "Adobe", "Acrobat", "DC", "Cache");
@@ -234,6 +244,26 @@ public static class CleanupCatalog
 			new("常见应用程序缓存", "Common application caches"),
 			new("只清理明确命名的应用缓存，不碰 Adobe 文档、OneDrive 同步/离线数据、Visual Studio 安装包缓存或应用配置。", "Only explicitly named application caches are considered; Adobe documents, OneDrive sync/offline data, Visual Studio installer packages, and app configuration are untouched."),
 			applicationCaches);
+
+		Add(targets, "notion-render-cache", CacheCategory,
+			new("Notion 页面渲染缓存", "Notion rendering caches"),
+			new("请先退出 Notion。只清理渲染/代码/GPU 缓存，保留数据库、离线数据、登录和配置。", "Quit Notion first. Only rendering/code/GPU caches are selected; databases, offline data, login and settings are kept."),
+			DirectCacheLocations(Combine(roaming, "Notion"), "Cache", "Code Cache", "GPUCache")
+				.Concat(DirectCacheLocations(Combine(roaming, "Notion", "partitions"), "Cache", "Code Cache", "GPUCache")),
+			risk: CleanupRisk.Moderate, optIn: true);
+		Add(targets, "vlc-art-cache", CacheCategory,
+			new("VLC 封面和缩略图缓存", "VLC artwork and thumbnail caches"),
+			new("关闭 VLC 后可清理；保留媒体、播放列表和配置，封面需要重新获取。", "Close VLC first; media, playlists and settings are kept, artwork may need downloading again."),
+			Locations(Combine(roaming, "vlc", "art"))
+				.Concat(PackageCacheLocations(packagesRoot, "VideoLAN.VLC_*", "LocalState", "videoThumbs")),
+			risk: CleanupRisk.Moderate, optIn: true);
+		Add(targets, "personal-app-old-logs", PrivacyCategory,
+			new("Notion / Dropbox / Spotify 旧诊断日志", "Notion / Dropbox / Spotify old diagnostics"),
+			new("只处理超过 30 天的已知诊断目录/日志，不清理同步文件、离线音乐或账号。", "Only known diagnostics/logs older than 30 days; synced files, offline music and accounts are kept."),
+			OldLocations(30, Combine(roaming, "Notion", "logs"), Combine(roaming, "Dropbox", "logs"),
+				Combine(local, "Dropbox", "Logs"), Combine(local, "Dropbox", "CrashReports"), Combine(local, "Dropbox", "QuitReports"))
+				.Concat(OldMatchingLocations(30, Combine(roaming, "Spotify"), false, "*.log")),
+			risk: CleanupRisk.Moderate, optIn: true);
 
 		var packagedAppCaches = new List<CleanupLocation>();
 		var packagedCacheSuffixes = new[]
@@ -263,6 +293,10 @@ public static class CleanupCatalog
 		AddCacheLocations(communicationCaches, roaming, "Microsoft", "Teams", "Cache", "Code Cache", "GPUCache", Path.Combine("Service Worker", "CacheStorage"));
 		AddCacheLocations(communicationCaches, local, "Discord", "Cache", "Code Cache", "GPUCache", "DawnCache");
 		AddCacheLocations(communicationCaches, roaming, "discord", "Cache", "Code Cache", "GPUCache", "DawnCache");
+		foreach (var variant in new[] { "discordptb", "discordcanary", "discorddevelopment" })
+		{
+			communicationCaches.AddRange(DirectCacheLocations(Combine(roaming, variant), "Cache", "Code Cache", "GPUCache"));
+		}
 		AddCacheLocations(communicationCaches, local, "Slack", "Cache", "Code Cache", "GPUCache", Path.Combine("Service Worker", "CacheStorage"));
 		AddCacheLocations(communicationCaches, roaming, "Slack", "Cache", "Code Cache", "GPUCache", Path.Combine("Service Worker", "CacheStorage"));
 		AddCacheLocations(communicationCaches, local, "Signal", "Cache", "Code Cache", "GPUCache");
@@ -544,67 +578,7 @@ public static class CleanupCatalog
 			new("只处理超过 30 天的日志；日志可能包含提示词或诊断信息，默认需手动选择。", "Only logs older than 30 days are considered; logs may contain prompts or diagnostics. Manual opt-in is required."),
 			aiLogs, false, CleanupRisk.Moderate, optIn: true);
 
-		var developerCaches = new List<CleanupLocation>();
-		AddCacheLocations(developerCaches, local, "npm-cache");
-		AddPathIfPresent(developerCaches, GetEnvironmentPath("npm_config_cache"));
-		AddCacheLocations(developerCaches, local, "pip", "Cache");
-		AddPathIfPresent(developerCaches, GetEnvironmentPath("PIP_CACHE_DIR"));
-		AddCacheLocations(developerCaches, local, "NuGet", "v3-cache");
-		AddCacheLocations(developerCaches, local, "NuGet", "plugins-cache");
-		AddPathIfPresent(developerCaches, GetEnvironmentPath("NUGET_HTTP_CACHE_PATH"));
-		AddCacheLocations(developerCaches, local, "Yarn", "Cache");
-		AddPathIfPresent(developerCaches, GetEnvironmentPath("YARN_CACHE_FOLDER"));
-		AddPathIfPresent(developerCaches, Combine(local, "pnpm", "store"));
-		AddPathIfPresent(developerCaches, Combine(userProfile, ".pnpm-store"));
-		AddPathIfPresent(developerCaches, Combine(programData, "chocolatey", "cache"));
-		AddPathIfPresent(developerCaches, Combine(userProfile, "scoop", "cache"));
-		AddCacheLocations(developerCaches, roaming, "Code", "Cache");
-		AddCacheLocations(developerCaches, roaming, "Code", "CachedData");
-		AddCacheLocations(developerCaches, roaming, "Code", "Code Cache");
-		AddCacheLocations(developerCaches, roaming, "Code", "GPUCache");
-		AddCacheLocations(developerCaches, local, "Code", "Cache");
-		AddCacheLocations(developerCaches, local, "Code", "CachedData");
-		AddCacheLocations(developerCaches, local, "Code", "Code Cache");
-		AddCacheLocations(developerCaches, local, "Code", "GPUCache");
-		AddCacheLocations(developerCaches, roaming, "Code - Insiders", "Cache", "CachedData", "Code Cache", "GPUCache");
-		AddCacheLocations(developerCaches, local, "Code - Insiders", "Cache", "CachedData", "Code Cache", "GPUCache");
-		AddPathIfPresent(developerCaches, Combine(userProfile, ".gradle", "caches"));
-		developerCaches.AddRange(ProfileSubdirectoryLocations(Combine(local, "JetBrains"), "caches"));
-		developerCaches.AddRange(ProfileSubdirectoryLocations(Combine(local, "JetBrains"), "log", "tmp")
-			.Select(location => location with { MinimumAgeDays = 30 }));
-		AddPathIfPresent(developerCaches, Combine(userProfile, ".android", "cache"));
-
-		var ageLimitedDeveloperCaches = new List<CleanupLocation>();
-		ageLimitedDeveloperCaches.AddRange(OldLocations(90,
-			Combine(userProfile, ".m2", "repository")));
-		ageLimitedDeveloperCaches.AddRange(OldLocations(30,
-			Combine(local, "go-build"),
-			GetEnvironmentPath("GOCACHE")));
-		foreach (var gopath in GetEnvironmentPaths("GOPATH").Append(Combine(userProfile, "go")).Where(path => !string.IsNullOrWhiteSpace(path)))
-		{
-			ageLimitedDeveloperCaches.AddRange(OldLocations(30,
-				Combine(gopath, "pkg", "mod", "cache", "download")));
-		}
-
-		foreach (var cargoHome in GetEnvironmentPaths("CARGO_HOME").Append(Combine(userProfile, ".cargo")).Where(path => !string.IsNullOrWhiteSpace(path)))
-		{
-			ageLimitedDeveloperCaches.AddRange(OldLocations(30,
-				Combine(cargoHome, "registry", "cache"),
-				Combine(cargoHome, "registry", "src"),
-				Combine(cargoHome, "git", "db"),
-				Combine(cargoHome, "git", "checkouts")));
-		}
-
-		foreach (var condaPackages in GetEnvironmentPaths("CONDA_PKGS_DIRS"))
-		{
-			ageLimitedDeveloperCaches.AddRange(OldMatchingLocations(30, condaPackages, true, "*.conda", "*.tar.bz2"));
-		}
-
-		developerCaches.AddRange(ageLimitedDeveloperCaches);
-		Add(targets, "developer-caches", DeveloperCategory,
-			new("开发工具下载/构建缓存", "Developer download/build caches"),
-			new("包含 npm/pip/NuGet/Yarn/pnpm、Gradle、JetBrains、Maven、Cargo、Go、Conda、Scoop/Chocolatey 等明确缓存或依赖目录；清理后可能需要重新下载，默认不纳入 --all。", "Includes explicit npm/pip/NuGet/Yarn/pnpm, Gradle, JetBrains, Maven, Cargo, Go, Conda, Scoop/Chocolatey cache or dependency directories; cleanup may require downloads and is excluded from --all by default."),
-			developerCaches, false, CleanupRisk.Moderate, optIn: true);
+		targets.AddRange(DeveloperCacheCatalog.Build(DeveloperCacheKind.Tools));
 
 		Add(targets, "windows-old-logs", DiskCategory,
 			new("旧 CBS / DISM 日志", "Old CBS / DISM logs"),

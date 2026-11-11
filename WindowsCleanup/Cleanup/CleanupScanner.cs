@@ -5,14 +5,26 @@ public static class CleanupScanner
 	public static IReadOnlyList<CleanupTarget> ScanTargets(
 		IEnumerable<CleanupTarget> targets,
 		CancellationToken cancellationToken = default,
-		Action<CleanupTarget>? onTargetScanned = null)
+		Action<CleanupTarget>? onTargetScanned = null,
+		bool directoryOnly = false)
 	{
 		var available = new List<CleanupTarget>();
 		foreach (var target in targets)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			ScanTarget(target, cancellationToken);
-			if (target.Snapshot.FileCount > 0 || target.Snapshot.Bytes > 0)
+			if (directoryOnly && target.Locations.All(location => location.Kind != CleanupLocationKind.RecycleBin))
+			{
+				var count = 0;
+				foreach (var location in target.Locations)
+				{
+					cancellationToken.ThrowIfCancellationRequested();
+					if (SafeFileSystem.IsExistingSafeLocation(location.Path)) count++;
+				}
+				target.Snapshot = new CleanupSnapshot(0, 0, count, IsMeasured: false);
+			}
+			else ScanTarget(target, cancellationToken);
+			if (target.Snapshot.FileCount > 0 || target.Snapshot.Bytes > 0 ||
+				(!target.Snapshot.IsMeasured && target.Snapshot.LocationsWithFiles > 0))
 			{
 				available.Add(target);
 			}
@@ -29,6 +41,7 @@ public static class CleanupScanner
 		var fileCount = 0;
 		long bytes = 0;
 		var locationsWithFiles = 0;
+		var measuredPaths = new List<string>();
 
 		foreach (var location in target.Locations)
 		{
@@ -63,10 +76,12 @@ public static class CleanupScanner
 			if (locationHasFiles)
 			{
 				locationsWithFiles++;
+				measuredPaths.Add(location.Path);
 			}
 		}
 
 		target.Snapshot = new CleanupSnapshot(fileCount, bytes, locationsWithFiles);
+		target.MeasuredPaths = measuredPaths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 		return target.Snapshot;
 	}
 }

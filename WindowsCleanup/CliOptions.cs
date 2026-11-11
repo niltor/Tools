@@ -14,13 +14,18 @@ public enum CliCommand
 	Remnants,
 	Packages,
 	Migration,
-	LargeFiles
+	LargeFiles,
+	Developer,
+	DeveloperPackages,
+	Containers,
+	ContainerReview
 }
 
 public sealed record CliOptions(
 	CliCommand Command,
 	bool DryRun,
-	bool SelectAll);
+	bool SelectAll,
+	IReadOnlyList<string>? ProjectRoots = null);
 
 public static class CliOptionsParser
 {
@@ -29,6 +34,7 @@ public static class CliOptionsParser
 		var command = CliCommand.Interactive;
 		var dryRun = false;
 		var selectAll = false;
+		var projectRoots = new List<string>();
 		error = null;
 
 		for (var index = 0; index < args.Length; index++)
@@ -36,6 +42,43 @@ public static class CliOptionsParser
 			var argument = args[index].Trim();
 			switch (argument.ToLowerInvariant())
 			{
+				case "--containers":
+					if (!TrySetCommand(CliCommand.Containers, ref command, ref error))
+					{
+						options = default!;
+						return false;
+					}
+					break;
+				case "--containers-review":
+					if (!TrySetCommand(CliCommand.ContainerReview, ref command, ref error))
+					{
+						options = default!;
+						return false;
+					}
+					break;
+				case "--developer-packages":
+					if (!TrySetCommand(CliCommand.DeveloperPackages, ref command, ref error))
+					{
+						options = default!;
+						return false;
+					}
+					break;
+				case "--developer":
+					if (!TrySetCommand(CliCommand.Developer, ref command, ref error))
+					{
+						options = default!;
+						return false;
+					}
+					break;
+				case "--project-root":
+					if (++index >= args.Length || !Cleanup.DeveloperCacheCatalog.IsCachePath(args[index]) || !Directory.Exists(args[index]))
+					{
+						error = "--project-root requires an existing absolute project directory (not a broad user/system root, Downloads or a link).";
+						options = default!;
+						return false;
+					}
+					projectRoots.Add(Path.GetFullPath(args[index]));
+					break;
 				case "-h":
 				case "--help":
 				case "/?":
@@ -151,7 +194,13 @@ public static class CliOptionsParser
 			command = CliCommand.Scan;
 		}
 
-		options = new CliOptions(command, dryRun, selectAll);
+		if (projectRoots.Count > 0 && command != CliCommand.Developer)
+		{
+			error = "--project-root can only be used with --developer.";
+			options = default!;
+			return false;
+		}
+		options = new CliOptions(command, dryRun, selectAll, projectRoots);
 		return true;
 	}
 
@@ -159,11 +208,17 @@ public static class CliOptionsParser
 	{
 		AnsiConsole.Write(new Rule(text.Get("usage_header")));
 		AnsiConsole.WriteLine("winclean [options]");
+		AnsiConsole.WriteLine("  --containers        " + (text.Language == AppLanguage.Chinese ? "清理无标签且未被引用的镜像" : "Review dangling and unreferenced images"));
+		AnsiConsole.WriteLine("  --containers-review " + (text.Language == AppLanguage.Chinese ? "单独审核有标签镜像和未引用卷" : "Separately review tagged images and unreferenced volumes"));
+		AnsiConsole.WriteLine("  --developer [--project-root <absolute-path>] [--dry-run]");
 		AnsiConsole.WriteLine();
 		AnsiConsole.WriteLine(text.Language == AppLanguage.Chinese
 			? "选项："
 			: "Options:");
 		AnsiConsole.WriteLine("  --scan              " + (text.Language == AppLanguage.Chinese ? "只扫描并显示发现的项目" : "Scan and display found items only"));
+		AnsiConsole.WriteLine("  --developer         " + (text.Language == AppLanguage.Chinese ? "项目构建中间产物和最终输出（保留包缓存）" : "Project intermediate and final build outputs (keep package caches)"));
+		AnsiConsole.WriteLine("  --developer-packages " + (text.Language == AppLanguage.Chinese ? "单独清理包下载/依赖缓存，可能需要重新下载" : "Separately clean package/dependency caches; downloads may be required"));
+		AnsiConsole.WriteLine("  --project-root PATH " + (text.Language == AppLanguage.Chinese ? "指定开发目录，可重复；仅与 --developer 使用" : "Project directory; repeatable, requires --developer"));
 		AnsiConsole.WriteLine("  --clean             " + (text.Language == AppLanguage.Chinese ? "交互式选择并清理" : "Interactively select and clean"));
 		AnsiConsole.WriteLine("  --clean --all       " + (text.Language == AppLanguage.Chinese ? "选择默认安全项目（仍需确认）" : "Select default-safe items (confirmation still required)"));
 		AnsiConsole.WriteLine("  --registry           " + (text.Language == AppLanguage.Chinese ? "预览并清理当前用户注册表记录" : "Preview and clean current-user registry history"));

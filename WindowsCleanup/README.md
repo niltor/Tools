@@ -72,8 +72,9 @@ winclean --packages --dry-run
 - 抖音、B 站、斗鱼、虎牙、快手、YY、TikTok、腾讯视频、优酷、爱奇艺、芒果 TV、西瓜视频等视频/直播软件缓存；OBS 只审核旧日志和崩溃报告
 - Codex 的 `.codex/cache`、`.codex/tmp`，以及 Claude、ChatGPT、Cursor、Windsurf 等工具明确的缓存目录
 - Acrobat、Windows Shell 等常见应用缓存
+- Notion 渲染缓存、VLC 封面/缩略图，以及 Notion/Dropbox/Spotify 超过 30 天的诊断日志（手动选择）；保留离线页面、音乐、同步数据和播放列表
 - Steam（含注册表/VDF 发现的自定义库）、Epic、Battle.net、GOG、EA、Riot、Ubisoft、Rockstar 等启动器明确标记的网页/着色器缓存（默认需手动选择）
-- VS Code、npm、pip、NuGet、Yarn、pnpm、Gradle、JetBrains、Maven、Cargo、Go、Conda、Scoop/Chocolatey 等开发工具缓存（默认需手动选择）
+- VS Code、npm、pip/uv、NuGet、Yarn、pnpm、Gradle、JetBrains、Cargo 下载归档、Go、Conda、Scoop/Chocolatey 等开发工具缓存，按工具分别选择（默认需手动选择）
 - 当前用户的最近项目/跳转列表文件
 - 当前用户崩溃转储
 - 软件/厂商自有更新暂存目录，以及通过卸载注册表关联到的已安装软件更新路径中的安装包候选；按扩展名、安装/升级/驱动命名标记和目录语义筛选，至少 20 MB，逐文件审核。不会进行全盘按文件名猜测
@@ -91,6 +92,59 @@ winclean --packages --dry-run
 - AppData 卸载残留候选来自 Local、Roaming、LocalLow 的一级目录；排除系统/常见软件、已安装软件注册表路径和包含可执行文件的目录。可多选删除，删除前会重新核验，并只处理达到保守时间条件的文件。
 - C 盘大文件分析扫描系统盘中非 Windows、Program Files、ProgramData、回收站及其他系统目录的文件，只列出超过 100 MB 的文件，按大小从大到小最多显示 50 条。可多选永久删除；删除前会再次检查路径和大小，并显示明确的 y/n 风险确认。结果可能因权限不足或文件变化而不完整。
 - Windows 更新、系统目录通常需要管理员权限；非管理员运行时无法访问的文件会被跳过。
+
+## 开发缓存清理
+
+主菜单将“项目构建产物清理”和“包下载/依赖缓存清理”分开。日常使用前者，只清构建的中间产物和最终输出；包缓存独立识别、列项和统计，不会混入项目清理。IDE 缓存仍在普通应用清理中。
+
+```powershell
+# 只预览项目产物及 Go 编译缓存，保留下载包
+winclean --developer --dry-run
+
+# 只有需要释放包缓存空间时，单独预览；可能需要重新下载
+winclean --developer-packages --dry-run
+
+# 在指定目录发现项目；可以重复传入多个开发根目录
+winclean --developer --project-root C:\codes --project-root C:\work --dry-run
+
+# 显示预览后多选，并确认清理
+winclean --developer --project-root C:\codes
+```
+
+未指定根目录时，扫描系统盘的 `codes`（例如 `C:\codes`）、当前工作目录及当前用户的 `source\repos`、`repos`、`projects`、`go\src`。扫描最多向下 8 层，跳过 `.git`、依赖、虚拟环境和已识别输出目录。自定义工作区可用 `--project-root`。
+
+先按项目标识和目录结构定位候选，再只统计已命中的目录。项目产物、包缓存和普通缓存均在选择前统计符合规则的文件数和大小；空目录和没有符合条件文件的位置不计入。含空间数据的扫描结果和选择列表按大小从大到小排列。
+
+项目产物优先按聚合入口合并统计和选择。支持 .NET `.sln` / `.slnx`、npm/Yarn 和 pnpm 工作区、Cargo 工作区、Maven 多模块、Gradle 静态模块声明、`go.work` 和 uv 工作区。根据清单中声明的成员归组，未归组的项目单独显示。成员出现在多个清单时优先归入覆盖候选项目更多的清单，避免重复统计。同一组只需选择一次。
+
+Git 工作区中，构建目录含已跟踪文件时跳过整个目录；artifacts、TestResults、coverage 等附加目录须被 Git 忽略才会纳入。清理前重新校验。超过 5 项的多选列表可直接按 A 切换全选和取消全选，再逐项调整。交互式清理直接显示选择列表；只读预览用表格展示。
+
+清理后的文件大小合计和磁盘可用空间变化分别显示。磁盘读数反映操作前后的净变化，也可能受其他进程同时读写影响。
+
+| 类型 | 可选清理目录 | 保留内容 |
+| --- | --- | --- |
+| Go | `GOCACHE` / `LocalAppData\go-build`，模块下载归档 | `GOPATH\bin`、源码、已解压模块 |
+| .NET | NuGet HTTP/插件缓存、全局包；有项目文件的 `bin` / `obj` | SDK、配置、源码、自定义发布目录 |
+| Rust | Cargo `registry\cache`；有 `Cargo.toml` 和 `CACHEDIR.TAG` 的 `target` | 工具链、凭据、Cargo bin、registry src、git checkout |
+| Node.js | 项目入口：有 `package.json` 的 `dist`、`build`、`.next`、`.nuxt`、`.output`、`.svelte-kit`、`node_modules\.cache`、`.parcel-cache`、`.angular\cache`；包入口：npm/Yarn/pnpm/node-gyp | node_modules 依赖本体、锁文件 |
+| Python | 项目入口：有 Python 标识的 `__pycache__`、pytest/mypy/ruff 缓存；有 pyproject.toml/setup.py 的 build/dist；包入口：pip/uv | venv、源码、已安装解释器 |
+| Java/Kotlin | Gradle caches；有 Gradle 标识的 build/.gradle、有 pom.xml 的 target | `.m2\repository` 中可能仅本机存在的发布包、配置 |
+
+`--developer` 包含项目输出与 Go 构建缓存；NuGet、npm/pip、Cargo 归档、Go 模块下载和 Conda 等仅在 `--developer-packages` 中出现。全局 Gradle caches 混合依赖与构建缓存，归入包缓存入口。项目最终输出可能用于直接运行或部署，应在确认可以重新构建时清理。
+
+## 容器镜像和卷
+
+多选后、确认前会显示预计释放合计：每张镜像只计一次独占空间，再加所选卷的占用；镜像共享层不计入保守估算，无法测量的项目会注明。清理后用容器引擎报告的前后占用差显示实际净变化。该数值受统计精度和并发活动影响，容器虚拟磁盘内部释放空间也不一定立即增加 Windows 的可用空间。
+
+主菜单只有一个“清理容器镜像和卷”入口。默认只列出引擎识别为 dangling、且未被运行中或已停止容器引用的无标签镜像；进入菜单时可选择同时审核有标签镜像和卷。命令行可用 `winclean --containers --dry-run` 预览默认范围，或用 `winclean --containers-review --dry-run` 预览扩展范围。未引用只表示当前没有关联容器，不代表数据没用或镜像不会再次使用。
+
+支持本机 Docker 命名管道和 Podman 本地机器的回环 SSH 连接。选择前展示未引用卷的占用合计、镜像总大小和按独占层计算的预计释放量，并降序排列。只删除手动选择并确认的资源，不执行强制删除或批量 prune。
+
+扩展审核把本次扫描到的全部未引用本地卷合成一项，显示数量和占用合计。选中后统一确认和清理，删除前重新检查引用。镜像仍可逐项选择。
+
+支持常见缓存环境变量覆盖；不会执行项目脚本，也不读取各工具配置文件来推断自定义输出路径。所有开发项均需手动选择，`--all` 不会清理。删除前应关闭 IDE、构建进程和开发服务器；下次使用可能需要联网恢复依赖、重新编译。项目输出目录中手工存入的文件也会删除。NuGet 全局包先删除 `.nupkg.metadata`，该文件被占用时保留相应包内容，避免留下被误认为完整的包。
+
+规则调研、来源和排除依据见 [清理规则说明](CLEANUP_RULES.md)。回归验证：`dotnet run --project WindowsCleanup.Tests`，仅操作测试自行创建的临时目录。
 
 ## C 盘数据迁移
 

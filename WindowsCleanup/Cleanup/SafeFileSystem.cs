@@ -6,6 +6,9 @@ internal readonly record struct SafeFileEntry(string Path, long Length);
 
 internal static class SafeFileSystem
 {
+	internal static bool IsExistingSafeLocation(string path)
+		=> !IsProtectedPath(path) && !HasReparsePointAncestor(path) && (Directory.Exists(path) || File.Exists(path));
+
 	private static readonly Lazy<IReadOnlyList<string>> ProtectedRoots = new(BuildProtectedRoots);
 
 	public static IEnumerable<SafeFileEntry> EnumerateFiles(
@@ -19,7 +22,7 @@ internal static class SafeFileSystem
 		}
 
 		var root = GetFullPath(location.Path);
-		if (root is null || IsProtectedPath(root))
+		if (root is null || IsProtectedPath(root) || HasReparsePointAncestor(root))
 		{
 			yield break;
 		}
@@ -57,15 +60,17 @@ internal static class SafeFileSystem
 
 		var pending = new Stack<string>();
 		pending.Push(root);
+		var cutoff = location.MinimumAgeDays is > 0 ? DateTime.UtcNow.AddDays(-location.MinimumAgeDays.Value) : (DateTime?)null;
 
 		while (pending.Count > 0)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			var current = pending.Pop();
-			IEnumerable<string> entries;
+			if (IsReparsePoint(current)) continue;
+			FileSystemInfo[] entries;
 			try
 			{
-				entries = Directory.EnumerateFileSystemEntries(current, "*", SearchOption.TopDirectoryOnly).ToArray();
+				entries = new DirectoryInfo(current).GetFileSystemInfos();
 			}
 			catch (Exception exception) when (IsFileSystemException(exception))
 			{
@@ -75,45 +80,26 @@ internal static class SafeFileSystem
 			foreach (var entry in entries)
 			{
 				cancellationToken.ThrowIfCancellationRequested();
-				if (IsProtectedPath(entry) || IsReparsePoint(entry))
-				{
-					continue;
-				}
-
-				bool isDirectory;
+				SafeFileEntry? file = null;
 			try
 			{
-					isDirectory = (File.GetAttributes(entry) & FileAttributes.Directory) != 0;
+					if (IsProtectedPath(entry.FullName) || (entry.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+					if (entry is DirectoryInfo)
+					{
+						if (location.Recursive) pending.Push(entry.FullName);
+					}
+					else if (entry is FileInfo info && (pattern is null || pattern.IsMatch(info.Name)) &&
+						(cutoff is null || info.LastWriteTimeUtc <= cutoff.Value))
+					{
+						file = new SafeFileEntry(info.FullName, info.Length);
+					}
 				}
 				catch (Exception exception) when (IsFileSystemException(exception))
 				{
 					continue;
 				}
 
-				if (isDirectory)
-				{
-					if (location.Recursive)
-					{
-						pending.Push(entry);
-					}
-
-					continue;
-				}
-
-				if (pattern is not null && !pattern.IsMatch(Path.GetFileName(entry)))
-				{
-					continue;
-				}
-
-				if (!IsOldEnough(entry, location.MinimumAgeDays))
-				{
-					continue;
-				}
-
-				if (TryGetLength(entry, out var length))
-				{
-					yield return new SafeFileEntry(entry, length);
-				}
+				if (file is { } result) yield return result;
 			}
 		}
 	}
@@ -125,7 +111,11 @@ internal static class SafeFileSystem
 			return CleanupExecutionResult.Empty;
 		}
 
-		var entries = EnumerateFiles(location).ToArray();
+		// NuGet treats .nupkg.metadata as proof that a package was fully extracted.
+		// Remove these markers first; if one is locked, preserve the whole package.
+		var entries = location.NuGetPackageCache
+			? EnumerateFiles(location).OrderBy(entry => Path.GetFileName(entry.Path) == ".nupkg.metadata" ? 0 : 1)
+			: EnumerateFiles(location);
 		var deletedFiles = 0;
 		long deletedBytes = 0;
 		var failedFiles = 0;
@@ -135,8 +125,13 @@ internal static class SafeFileSystem
 		{
 			try
 			{
-				if (IsReparsePoint(entry.Path) || !File.Exists(entry.Path))
+				if (HasReparsePointAncestor(entry.Path) || !File.Exists(entry.Path))
 				{
+					continue;
+				}
+				if (location.NuGetPackageCache && Path.GetFileName(entry.Path) != ".nupkg.metadata" && HasNuGetMarker(entry.Path, location.Path))
+				{
+					failedFiles++;
 					continue;
 				}
 
@@ -162,6 +157,15 @@ internal static class SafeFileSystem
 		return new CleanupExecutionResult(deletedFiles, deletedBytes, failedFiles, errors);
 	}
 
+	private static bool HasNuGetMarker(string path, string root)
+	{
+		for (var parent = Path.GetDirectoryName(path); parent is not null && UserFolderDiscovery.IsSameOrDescendant(parent, root); parent = Path.GetDirectoryName(parent))
+		{
+			if (File.Exists(Path.Combine(parent, ".nupkg.metadata"))) return true;
+		}
+		return false;
+	}
+
 	public static bool IsReparsePoint(string path)
 	{
 		try
@@ -172,6 +176,19 @@ internal static class SafeFileSystem
 		{
 			return true;
 		}
+	}
+
+	internal static bool HasReparsePointAncestor(string path)
+	{
+		try
+		{
+			for (var current = Path.GetFullPath(path); current is not null; current = Path.GetDirectoryName(current))
+			{
+				if ((Directory.Exists(current) || File.Exists(current)) && IsReparsePoint(current)) return true;
+			}
+			return false;
+		}
+		catch (Exception exception) when (IsFileSystemException(exception)) { return true; }
 	}
 
 	public static bool TryGetLength(string path, out long length)
@@ -211,7 +228,7 @@ internal static class SafeFileSystem
 	private static void DeleteEmptyDirectories(string rootPath, List<string> errors, ref int failedFiles)
 	{
 		var root = GetFullPath(rootPath);
-		if (root is null || IsProtectedPath(root) || !Directory.Exists(root) || IsReparsePoint(root))
+		if (root is null || IsProtectedPath(root) || !Directory.Exists(root) || HasReparsePointAncestor(root))
 		{
 			return;
 		}
@@ -223,6 +240,7 @@ internal static class SafeFileSystem
 		while (pending.Count > 0)
 		{
 			var current = pending.Pop();
+			if (HasReparsePointAncestor(current)) continue;
 			directories.Add(current);
 			IEnumerable<string> entries;
 			try
@@ -252,7 +270,7 @@ internal static class SafeFileSystem
 
 			try
 			{
-				if (!Directory.EnumerateFileSystemEntries(directory).Any())
+				if (!HasReparsePointAncestor(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
 				{
 					Directory.Delete(directory, false);
 				}
