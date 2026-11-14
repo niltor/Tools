@@ -7,7 +7,7 @@
 - `Tools.slnx`：解决方案文件
 - `PortScan/`：端口扫描命令行工具
 - `stockWatcher/`：Yahoo Finance 行情自选命令行工具
-- `WindowsCleanup/`：Windows 10/11 安全清理命令行工具
+- `WindowsManager/`：C 盘清理和跨平台硬件检测命令行工具
 
 ## PortScan
 
@@ -48,14 +48,16 @@ dotnet run --project PortScan -- 192.168.1.10 1 1024 0.5 50
 
 如果只是人工临时连一下，`telnet` 当然也能用；但做成工具的话，自己实现更稳，也更像个正经工具，少一点“看天吃饭”的味道。
 
-## WindowsCleanup
+## WindowsManager
+
+启动后一级菜单提供“C盘清理”和“硬件检测”。硬件检测会按 Windows、Linux 或 macOS 调用系统命令，显示 CPU、内存、GPU/显卡、主板和硬盘信息；C 盘清理及其下属清理工具仅支持 Windows 10/11。
 
 使用 Spectre.Console 提供交互式清理界面，支持中文和英文：
 
 ```bash
-dotnet pack WindowsCleanup/WindowsCleanup.csproj --configuration Release
-dotnet tool install --global winclean
-winclean
+dotnet pack WindowsManager/WindowsManager.csproj --configuration Release
+dotnet tool install --global Ater.Windows.Tools
+windowsmanager
 ```
 
 工具会根据 Windows 当前 UI 语言自动选择中文或英文界面。
@@ -63,18 +65,19 @@ winclean
 命令行模式：
 
 ```bash
-winclean --scan
-winclean --clean
-winclean --clean --all
-winclean --registry
-winclean --duplicates
-winclean --remnants
-winclean --packages
-winclean --migration
-winclean --large-files
+windowsmanager --scan
+windowsmanager --hardware
+windowsmanager --clean
+windowsmanager --clean --all
+windowsmanager --registry
+windowsmanager --duplicates
+windowsmanager --remnants
+windowsmanager --packages
+windowsmanager --migration
+windowsmanager --large-files
 ```
 
-所有删除操作都需要交互确认；`--scan` 和 `--dry-run` 只预览，不删除文件。`--clean --all` 只选择默认安全项目，交互式 `--clean` 可手动选择需确认项目。工具只清理可重新生成的临时文件/缓存、C: 回收站和当前用户的使用记录；安装包与卸载残留均采用人工审核，重复文件只列表展示。`--migration` 会在单独确认后把选中的用户目录、开发工具目录或已确认可配置的软件数据迁移到其他固定盘，并更新对应配置。`--large-files` 会分析非系统目录中超过 100 MB 的文件，最多显示 50 条并支持多选永久删除；删除前会再次进行 y/n 风险确认。选择界面可直接按 ESC 返回。详见 [`WindowsCleanup/README.md`](WindowsCleanup/README.md)。
+所有删除操作都需要交互确认；`--scan` 和 `--dry-run` 只预览，不删除文件。`--clean --all` 只选择默认安全项目，交互式 `--clean` 可手动选择需确认项目。工具只清理可重新生成的临时文件/缓存、C: 回收站和当前用户的使用记录；安装包与卸载残留均采用人工审核，重复文件只列表展示。`--migration` 会在单独确认后把选中的用户目录、开发工具目录或已确认可配置的软件数据迁移到其他固定盘，并更新对应配置。`--large-files` 会分析非系统目录中超过 100 MB 的文件，最多显示 50 条并支持多选永久删除；删除前会再次进行 y/n 风险确认。选择界面可直接按 ESC 返回。详见 [`WindowsManager/README.md`](WindowsManager/README.md)。
 
 ## stockWatcher
 

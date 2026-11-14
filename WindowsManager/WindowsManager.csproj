@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- Cleanup remains Windows-only; hardware inspection also runs on Linux and macOS. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PublishAot Condition="'$(PublishAot)' == ''">false</PublishAot>
+    <ToolPackageRuntimeIdentifiers Condition="'$(PublishAot)' == 'true' or '$(RuntimeIdentifier)' == 'any'">win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64;any</ToolPackageRuntimeIdentifiers>
+    <AssemblyName>WindowsManager</AssemblyName>
+    <RootNamespace>WindowsManager</RootNamespace>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>windowsmanager</ToolCommandName>
+    <PackageId>Ater.Windows.Tools</PackageId>
+    <Version>1.1.0</Version>
+    <Authors>Ater_NilTor</Authors>
+    <Description>Windows cleanup and cross-platform hardware inspection command-line tool with bilingual Spectre.Console UI.</Description>
+    <PackageTags>windows;cleanup;hardware;cpu;gpu;disk;system-tool</PackageTags>
+    <PackageProjectUrl>https://github.com/niltor/Tools</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/niltor/Tools</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReleaseNotes>Package as a .NET global or local tool. Native AOT packages are built per operating system and architecture.</PackageReleaseNotes>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" Version="0.57.0" />
+    <None Update="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

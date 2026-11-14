@@ -1,6 +1,6 @@
 <Solution>
   <Project Path="PortScan/PortScan.csproj" />
   <Project Path="stockWatcher/stockWatcher.csproj" />
-  <Project Path="WindowsCleanup/WindowsCleanup.csproj" />
-  <Project Path="WindowsCleanup.Tests/WindowsCleanup.Tests.csproj" />
+  <Project Path="WindowsManager/WindowsManager.csproj" />
+  <Project Path="WindowsManager.Tests/WindowsManager.Tests.csproj" />
 </Solution>
